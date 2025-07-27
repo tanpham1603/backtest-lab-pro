@@ -13,5 +13,3 @@ oandapyV20
 pandas-ta
 matplotlib
 seaborn
-pip>=25.1.1
-python-3.10.13 
