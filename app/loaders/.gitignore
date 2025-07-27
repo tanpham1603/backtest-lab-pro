@@ -1,0 +1,13 @@
+# Môi trường ảo
+.venv/
+venv/
+
+# Các file cache của Python
+__pycache__/
+*.pyc
+
+# Các file dữ liệu đã lưu (không nên đưa data lớn lên Git)
+data/saved/
+
+# Các file của VS Code
+.vscode/

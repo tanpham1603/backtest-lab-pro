@@ -1,0 +1,21 @@
+
+**Cấu trúc mapp/
+    main.py                    # Trang chính
+    pages/
+      01_📊_Dashboard.py        # Dashboard chính
+      02_🔧_Strategy_Builder.py # Xây dựng chiến lược
+      03_⚡_Optimizer.py        # Tối ưu hóa tham số
+      04_🛡️_Risk_Manager.py     # Quản lý rủi ro
+      05_📈_Live_Trading.py     # Trading thật (demo)
+    components/
+      charts.py               # Component biểu đồ
+      indicators.py           # Chỉ báo kỹ thuật
+      risk_management.py      # Risk management
+    utils/
+      data_processing.py      # Xử lý dữ liệu
+      performance_metrics.py  # Metrics tính toán
+  strategies/
+    advanced_strategies.py    # Chiến lược nâng cao
+  results/
+    plots/                   # Lưu biểu đồ
+    exports/                 # Export file
