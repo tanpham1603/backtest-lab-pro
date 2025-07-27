@@ -85,10 +85,10 @@ if st.sidebar.button("🚀 Chạy Tối ưu hóa", type="primary"):
                 results.append({
                     "Fast": f,
                     "Slow": s,
-                    "Sharpe": pf.sharpe_ratio(),
-                    "Return": pf.total_return(),
-                    "Win Rate": pf.trades.win_rate(),
-                    "Profit Factor": pf.trades.profit_factor(), # Sửa lại dòng này
+                    "Sharpe": pf.sharpe_ratio().values[0],
+                    "Return": pf.total_return().values[0],
+                    "Win Rate": pf.trades.win_rate().values[0],
+                    "Profit Factor": pf.trades.profit_factor().values[0],
                     "Trades": pf.trades.count()
                 })
                 # --------------------------------------------------
