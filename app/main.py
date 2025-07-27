@@ -98,3 +98,7 @@ fig.update_layout(
     height=400
 )
 st.plotly_chart(fig, use_container_width=True)
+try:
+    st.success("🔑 API KEY: " + st.secrets["ALPACA_API_KEY"])
+except Exception as e:
+    st.error(f"❌ Lỗi khi đọc secrets: {e}")
