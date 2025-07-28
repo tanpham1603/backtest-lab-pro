@@ -1,6 +1,6 @@
 streamlit
-pandas
-numpy
+pandas==1.5.3
+numpy==1.24.4
 yfinance
 vectorbt
 scikit-learn
@@ -10,7 +10,7 @@ ccxt
 alpaca-py
 backtrader
 oandapyV20
-pandas-ta
+pandas-ta==0.3.14b
 matplotlib
 seaborn
-alpaca-py
+talib-binary
