@@ -13,4 +13,3 @@ oandapyV20
 pandas-ta==0.3.14b
 matplotlib
 seaborn
-TA-Lib
