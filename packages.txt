@@ -1,5 +1,2 @@
-ffmpeg
-libsm6
-libxext6
-libta-lib0
-ta-lib-dev
+build-essential
+libta-lib-dev
