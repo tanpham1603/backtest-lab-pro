@@ -51,7 +51,7 @@ def load_data_for_signal(asset, sym, timeframe):
         st.error(f"Lỗi khi tải dữ liệu cho {sym}: {e}")
         return None
 
-# --- Hàm tạo tín hiệu ML ---
+# --- Hàm tạo tín hiệu ML (Cải tiến xử lý lỗi) ---
 def get_ml_signal(data):
     """Tạo tín hiệu từ dữ liệu đã được tải."""
     try:
@@ -61,7 +61,13 @@ def get_ml_signal(data):
             st.warning(f"Không tìm thấy mô hình tại: {model_path}.")
             return "ERROR", "Không tìm thấy tệp mô hình"
             
-        model = joblib.load(model_path)
+        try:
+            model = joblib.load(model_path)
+        # --- BẮT LỖI TƯƠNG THÍCH ---
+        except (ModuleNotFoundError, AttributeError) as e:
+            st.error(f"Lỗi Tương Thích Thư Viện: Không thể tải mô hình `{model_path}`.")
+            st.warning(f"Lỗi này xảy ra vì phiên bản của `scikit-learn` hoặc `numpy` trên server không khớp với phiên bản bạn đã dùng để tạo mô hình. Hãy đảm bảo tệp `requirements.txt` đã được cập nhật chính xác và ứng dụng đã được Reboot. Chi tiết lỗi: {e}")
+            return "ERROR", "Lỗi tương thích thư viện"
 
         # 2. Tính toán các đặc trưng (features)
         if 'Close' not in data.columns:
@@ -90,7 +96,7 @@ def get_ml_signal(data):
             return "SELL", "Tín hiệu BÁN được phát hiện"
 
     except Exception as e:
-        error_message = f"Lỗi trong quá trình xử lý: {e}"
+        error_message = f"Lỗi không xác định trong quá trình xử lý: {e}"
         st.error(error_message)
         return "ERROR", str(e)
 
