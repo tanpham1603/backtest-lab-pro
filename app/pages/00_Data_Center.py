@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
-import ccxt # Sử dụng trực tiếp ccxt
-import yfinance as yf # Sử dụng cho Forex/Stocks
+import ccxt 
+import yfinance as yf
 
 # --- Cấu hình trang ---
 st.set_page_config(page_title="Data Center", page_icon="🗃️", layout="wide")
@@ -27,45 +27,30 @@ else: # Stocks
     tf = st.sidebar.selectbox("Khung thời gian:", ["1d", "1h"], index=0)
     limit = st.sidebar.slider("Số nến:", 200, 1000, 500)
 
-# --- Hàm tải dữ liệu với cache (ĐÃ CẬP NHẬT HOÀN CHỈNH) ---
-@st.cache_data(ttl=300) # Cache kết quả trong 5 phút
+# --- Hàm tải dữ liệu an toàn ---
+@st.cache_data(ttl=300)
 def load_data(asset, sym, timeframe, data_limit):
-    """Tải dữ liệu dựa trên lựa chọn của người dùng một cách an toàn và chi tiết."""
+    """Tải dữ liệu một cách an toàn và chi tiết."""
     with st.spinner(f"Đang tải dữ liệu cho {sym}..."):
         try:
             if asset == "Crypto":
-                # Kết nối trực tiếp đến KuCoin (ít bị chặn hơn Binance)
                 exchange = ccxt.kucoin()
                 ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=data_limit)
                 data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
                 data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
                 data.set_index('timestamp', inplace=True)
-            
-            else: # Forex và Stocks dùng yfinance
+            else: # Forex và Stocks
+                period = "5y"
                 if timeframe not in ['1d', '1wk', '1mo']:
-                    period = "60d" 
-                else:
-                    period = "5y"
-                
+                    period = "730d"
                 data = yf.download(sym, period=period, interval=timeframe, progress=False)
-               
-                # --- SỬA LỖI: Chuẩn hóa tên cột, xử lý cả trường hợp tên cột là tuple ---
                 data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
 
-
-            # --- KIỂM TRA AN TOÀN ---
             if data is None or data.empty:
                 st.error(f"Không nhận được dữ liệu cho mã {sym}. API có thể đã bị lỗi hoặc mã không hợp lệ.")
                 return None
             
             return data
-            # ----------------------
-        except ccxt.BadSymbol as e:
-            st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ. Lỗi: {e}")
-            return None
-        except ccxt.NetworkError as e:
-            st.error(f"Lỗi mạng CCXT: Không thể kết nối đến sàn giao dịch. Vui lòng thử lại. Lỗi: {e}")
-            return None
         except Exception as e:
             st.error(f"Lỗi hệ thống khi tải dữ liệu cho {sym}: {e}")
             return None
@@ -80,10 +65,8 @@ if st.sidebar.button("Tải Dữ liệu", type="primary"):
             st.error(f"Dữ liệu cho {symbol} không có đủ các cột cần thiết. Các cột hiện có: {list(df.columns)}")
         else:
             st.success(f"Đã tải thành công {len(df)} dòng dữ liệu cho {symbol}.")
-            
             st.subheader("Biểu đồ đường (Line Chart)")
             st.line_chart(df['Close'])
-            
             st.subheader("Dữ liệu thô (50 dòng cuối)")
             st.dataframe(df.tail(50))
     else:
