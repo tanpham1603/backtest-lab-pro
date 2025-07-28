@@ -5,6 +5,7 @@ import joblib
 import os
 import ccxt
 import yfinance as yf
+import pandas_ta as ta
 
 # --- Cấu hình trang ---
 st.set_page_config(page_title="ML Signal", page_icon="🤖", layout="wide")
@@ -14,14 +15,14 @@ st.markdown("### Dự đoán MUA/BÁN cho ngày tiếp theo dựa trên mô hìn
 # --- Sidebar để người dùng tùy chỉnh ---
 st.sidebar.header("⚙️ Cấu hình Tín hiệu")
 
-asset_class = st.sidebar.radio("Loại tài sản:", ["Crypto", "Forex", "Stocks"])
+asset_class = st.sidebar.radio("Loại tài sản:", ["Crypto", "Forex", "Stocks"], key="ml_asset")
 
 if asset_class == "Crypto":
-    symbol = st.sidebar.text_input("Nhập mã giao dịch:", "BTC/USDT")
-    tf = st.sidebar.selectbox("Khung thời gian:", ["1h", "4h", "1d"], index=2)
+    symbol = st.sidebar.text_input("Nhập mã giao dịch:", "BTC/USDT", key="ml_crypto_symbol")
+    tf = st.sidebar.selectbox("Khung thời gian:", ["1h", "4h", "1d"], index=2, key="ml_crypto_tf")
 else: # Forex và Stocks
-    symbol = st.sidebar.text_input("Nhập mã giao dịch:", "EURUSD=X" if asset_class == "Forex" else "AAPL")
-    tf = st.sidebar.selectbox("Khung thời gian:", ["1d"], index=0)
+    symbol = st.sidebar.text_input("Nhập mã giao dịch:", "EURUSD=X" if asset_class == "Forex" else "AAPL", key="ml_stock_symbol")
+    tf = st.sidebar.selectbox("Khung thời gian:", ["1d"], index=0, key="ml_stock_tf")
 
 
 # --- Hàm tải dữ liệu an toàn ---
@@ -30,13 +31,14 @@ def load_data_for_signal(asset, sym, timeframe):
     """Tải dữ liệu để tạo tín hiệu một cách an toàn."""
     try:
         if asset == "Crypto":
-            exchange = ccxt.kucoin()
-            ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=100) # Cần khoảng 100 nến để tính chỉ báo
+            exchange = ccxt.kucoin() # Dùng KuCoin để tránh bị chặn
+            ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=100)
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
             data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
             data.set_index('timestamp', inplace=True)
         else: # Forex và Stocks
             data = yf.download(sym, period="1y", interval=timeframe, progress=False)
+            # Chuẩn hóa tên cột để xử lý cả tuple
             data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
 
         if data is None or data.empty:
@@ -53,28 +55,24 @@ def load_data_for_signal(asset, sym, timeframe):
 def get_ml_signal(data):
     """Tạo tín hiệu từ dữ liệu đã được tải."""
     try:
-        # 1. Tải mô hình đã được huấn luyện
-        # Đảm bảo đường dẫn này đúng trong cấu trúc thư mục của bạn
+        # 1. Tải mô hình
         model_path = "app/ml_signals/rf_signal.pkl"
         if not os.path.exists(model_path):
-            st.warning(f"Không tìm thấy mô hình tại: {model_path}. Vui lòng kiểm tra lại.")
+            st.warning(f"Không tìm thấy mô hình tại: {model_path}.")
             return "ERROR", "Không tìm thấy tệp mô hình"
             
         model = joblib.load(model_path)
 
-        # 2. Tính toán các đặc trưng (features) giống như lúc train
-        # Cần đảm bảo dữ liệu đầu vào có cột 'Close'
+        # 2. Tính toán các đặc trưng (features)
         if 'Close' not in data.columns:
             return "ERROR", "Dữ liệu thiếu cột 'Close'"
 
-        delta = data['Close'].diff(1)
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        avg_gain = gain.ewm(com=14 - 1, min_periods=14).mean()
-        avg_loss = loss.ewm(com=14 - 1, min_periods=14).mean()
-        rs = avg_gain / avg_loss
-        data['RSI'] = 100 - (100 / (1 + rs))
-        data["MA20"] = data["Close"].rolling(20).mean()
+        # Sử dụng pandas-ta để tính toán chỉ báo
+        data.ta.rsi(length=14, append=True)
+        data.ta.sma(length=20, append=True)
+        
+        # Đổi tên cột cho nhất quán với mô hình đã huấn luyện
+        data.rename(columns={"RSI_14": "RSI", "SMA_20": "MA20"}, inplace=True)
         data.dropna(inplace=True)
 
         if data.empty:
@@ -92,7 +90,6 @@ def get_ml_signal(data):
             return "SELL", "Tín hiệu BÁN được phát hiện"
 
     except Exception as e:
-        # Bắt lỗi chi tiết hơn
         error_message = f"Lỗi trong quá trình xử lý: {e}"
         st.error(error_message)
         return "ERROR", str(e)

@@ -49,7 +49,7 @@ def load_price_data(asset, sym, timeframe):
         else: # Forex và Stocks
             period = "5y" # Tải dữ liệu 5 năm để tối ưu hóa
             data = yf.download(sym, period=period, interval=timeframe, progress=False)
-    data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
+            data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
 
         if data is None or data.empty:
             st.error(f"Không nhận được dữ liệu cho mã {sym}. API có thể đã bị lỗi hoặc mã không hợp lệ.")
@@ -62,7 +62,7 @@ def load_price_data(asset, sym, timeframe):
         return data["Close"]
 
     except ccxt.BadSymbol as e:
-        st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Kucoin. Lỗi: {e}")
+        st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ. Lỗi: {e}")
         return None
     except Exception as e:
         st.error(f"Lỗi hệ thống khi tải dữ liệu cho {sym}: {e}")
@@ -85,7 +85,7 @@ if st.sidebar.button("🚀 Chạy Tối ưu hóa", type="primary"):
             st.warning("Không có cặp tham số hợp lệ nào (MA Nhanh phải < MA Chậm).")
         else:
             results = []
-            progress_bar = st.progress(0)
+            progress_bar = st.progress(0, text="Đang xử lý...")
             status_text = st.empty()
 
             for i, (f, s) in enumerate(param_combinations):
