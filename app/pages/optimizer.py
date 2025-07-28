@@ -41,7 +41,7 @@ def load_price_data(asset, sym, timeframe):
     """Tải về chuỗi giá đóng cửa cho backtest một cách an toàn."""
     try:
         if asset == "Crypto":
-            exchange = ccxt.binance()
+            exchange = ccxt.kucoin()
             ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=2000)
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
             data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
@@ -62,7 +62,7 @@ def load_price_data(asset, sym, timeframe):
         return data["Close"]
 
     except ccxt.BadSymbol as e:
-        st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Binance. Lỗi: {e}")
+        st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Kucoin. Lỗi: {e}")
         return None
     except Exception as e:
         st.error(f"Lỗi hệ thống khi tải dữ liệu cho {sym}: {e}")

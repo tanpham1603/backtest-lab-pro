@@ -34,8 +34,8 @@ def load_data(asset, sym, timeframe, data_limit):
     with st.spinner(f"Đang tải dữ liệu cho {sym}..."):
         try:
             if asset == "Crypto":
-                # Kết nối trực tiếp đến Binance
-                exchange = ccxt.binance()
+                # Kết nối trực tiếp đến Kucoin
+                exchange = ccxt.kucoin()
                 # Tải dữ liệu OHLCV
                 ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=data_limit)
                 # Chuyển đổi sang DataFrame của pandas
@@ -63,7 +63,7 @@ def load_data(asset, sym, timeframe, data_limit):
             return data
             # ----------------------
         except ccxt.BadSymbol as e:
-            st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Binance. Lỗi: {e}")
+            st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Kucoin. Lỗi: {e}")
             return None
         except ccxt.NetworkError as e:
             st.error(f"Lỗi mạng CCXT: Không thể kết nối đến sàn giao dịch. Vui lòng thử lại. Lỗi: {e}")

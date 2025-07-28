@@ -6,7 +6,7 @@ class CryptoLoader:
     """
     Lớp để tải dữ liệu crypto từ các sàn giao dịch sử dụng CCXT.
     """
-    def __init__(self, exchange_id="binance"):
+    def __init__(self, exchange_id="kucoin"):
         """Khởi tạo với một sàn giao dịch cụ thể."""
         try:
             exchange_class = getattr(ccxt, exchange_id)

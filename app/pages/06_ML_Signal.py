@@ -30,7 +30,7 @@ def load_data_for_signal(asset, sym, timeframe):
     """Tải dữ liệu để tạo tín hiệu một cách an toàn."""
     try:
         if asset == "Crypto":
-            exchange = ccxt.binance()
+            exchange = ccxt.kucoin()
             ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=100) # Cần khoảng 100 nến để tính chỉ báo
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
             data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
