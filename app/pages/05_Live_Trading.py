@@ -75,6 +75,7 @@ def get_ml_signal(symbol):
         if data is None or data.empty:
             st.error(f"Không tải được dữ liệu cho {symbol} từ yfinance.")
             return "ERROR"
+        data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
         delta = data['Close'].diff(1)
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)

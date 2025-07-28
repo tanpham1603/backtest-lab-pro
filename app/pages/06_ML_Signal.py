@@ -37,7 +37,7 @@ def load_data_for_signal(asset, sym, timeframe):
             data.set_index('timestamp', inplace=True)
         else: # Forex và Stocks
             data = yf.download(sym, period="1y", interval=timeframe, progress=False)
-            data.columns = [col.capitalize() for col in data.columns]
+            data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
 
         if data is None or data.empty:
             st.error(f"Không nhận được dữ liệu cho mã {sym}.")

@@ -161,10 +161,10 @@ def main():
                 st.error(f"Không có dữ liệu cho mã {symbol}. Vui lòng kiểm tra lại.")
                 return None
             return data
+            
         except Exception as e:
             st.error(f"Lỗi khi tải dữ liệu từ yfinance: {e}")
             return None
-    
     data = load_data(symbol, period)
 
     if data is None or data.empty:
@@ -244,61 +244,4 @@ def main():
         
         # --- SỬA LỖI: Tính toán chỉ báo bằng pandas-ta ---
         # Tính toán các chỉ báo được chọn và thêm vào DataFrame gốc
-        data.ta.strategy(ta.Strategy(
-            name="Custom Strategy",
-            ta=[
-                {"kind": "sma", "length": p} for p in sma_periods
-            ] + [
-                {"kind": "ema", "length": p} for p in ema_periods
-            ] + ([
-                {"kind": "bbands", "length": bb_period, "std": bb_std}
-            ] if bb_enabled else []) + ([
-                {"kind": "rsi", "length": rsi_period}
-            ] if rsi_enabled else []) + ([
-                {"kind": "macd", "fast": macd_fast, "slow": macd_slow, "signal": macd_signal}
-            ] if macd_enabled else [])
-        ))
-
-        # Lấy dữ liệu chỉ báo từ DataFrame đã được tính toán
-        for period in sma_periods:
-            indicators_dict[f'SMA_{period}'] = data[f'SMA_{period}']
-        
-        for period in ema_periods:
-            indicators_dict[f'EMA_{period}'] = data[f'EMA_{period}']
-        
-        if bb_enabled:
-            indicators_dict['BB'] = pd.DataFrame({
-                'Upper': data[f'BBU_{bb_period}_{bb_std}'],
-                'Lower': data[f'BBL_{bb_period}_{bb_std}']
-            })
-        
-        if rsi_enabled:
-            indicators_dict['RSI'] = data[f'RSI_{rsi_period}']
-        
-        if macd_enabled:
-            indicators_dict['MACD'] = pd.DataFrame({
-                'MACD': data[f'MACD_{macd_fast}_{macd_slow}_{macd_signal}'],
-                'Signal': data[f'MACDs_{macd_fast}_{macd_slow}_{macd_signal}'],
-                'Histogram': data[f'MACDh_{macd_fast}_{macd_slow}_{macd_signal}']
-            })
-        
-        # Generate signals (simplified logic)
-        signals = None
-        if entry_conditions:
-            signals = pd.Series(0, index=data.index)
-            
-            # Simple signal generation for demo
-            if rsi_enabled and "RSI < Oversold" in str(entry_conditions):
-                rsi = indicators_dict['RSI']
-                signals[(rsi < rsi_oversold) & (rsi.shift(1) >= rsi_oversold)] = 1
-            
-            if macd_enabled and "MACD crosses above Signal" in str(entry_conditions):
-                macd = indicators_dict['MACD']
-                signals[(macd['MACD'] > macd['Signal']) & (macd['MACD'].shift(1) <= macd['Signal'].shift(1))] = 1
-        
-        # Create and display chart
-        chart = create_strategy_chart(data, indicators_dict, signals)
-        st.plotly_chart(chart, use_container_width=True)
-
-if __name__ == "__main__":
-    main()
+        data.ta.strategy(ta.Strat

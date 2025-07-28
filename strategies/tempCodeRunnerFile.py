@@ -23,7 +23,7 @@ class ForexLoader:
         
         print(f"Đang tải dữ liệu Forex cho {symbol} từ yfinance...")
         data = yf.download(yf_symbol, start=start_date, end=end_date)
-        
+        data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
         if data.empty:
             print(f"Không tải được dữ liệu cho {symbol}.")
             return None

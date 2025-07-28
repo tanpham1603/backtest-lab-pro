@@ -34,26 +34,24 @@ def load_data(asset, sym, timeframe, data_limit):
     with st.spinner(f"Đang tải dữ liệu cho {sym}..."):
         try:
             if asset == "Crypto":
-                # Kết nối trực tiếp đến Kucoin
+                # Kết nối trực tiếp đến KuCoin (ít bị chặn hơn Binance)
                 exchange = ccxt.kucoin()
-                # Tải dữ liệu OHLCV
                 ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=data_limit)
-                # Chuyển đổi sang DataFrame của pandas
                 data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-                # Chuyển đổi timestamp sang định dạng ngày giờ
                 data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
                 data.set_index('timestamp', inplace=True)
             
             else: # Forex và Stocks dùng yfinance
-                # yfinance có giới hạn cho dữ liệu intraday
                 if timeframe not in ['1d', '1wk', '1mo']:
-                    period = "60d" # Tải tối đa 60 ngày cho dữ liệu intraday
+                    period = "60d" 
                 else:
-                    period = "2y" # Tải 2 năm cho dữ liệu ngày
+                    period = "5y"
                 
                 data = yf.download(sym, period=period, interval=timeframe, progress=False)
-                # Chuẩn hóa tên cột
-                data.columns = [col.capitalize() for col in data.columns]
+               
+                # --- SỬA LỖI: Chuẩn hóa tên cột, xử lý cả trường hợp tên cột là tuple ---
+                data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
+
 
             # --- KIỂM TRA AN TOÀN ---
             if data is None or data.empty:
@@ -63,7 +61,7 @@ def load_data(asset, sym, timeframe, data_limit):
             return data
             # ----------------------
         except ccxt.BadSymbol as e:
-            st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Kucoin. Lỗi: {e}")
+            st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ. Lỗi: {e}")
             return None
         except ccxt.NetworkError as e:
             st.error(f"Lỗi mạng CCXT: Không thể kết nối đến sàn giao dịch. Vui lòng thử lại. Lỗi: {e}")

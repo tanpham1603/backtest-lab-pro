@@ -46,7 +46,7 @@ def load_price_data(asset_type, sym, timeframe):
             else:
                 period = "5y" # Tải 5 năm cho dữ liệu ngày
             data = yf.download(sym, period=period, interval=timeframe, progress=False)
-            data.columns = [col.capitalize() for col in data.columns]
+            data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
 
         # --- KIỂM TRA AN TOÀN ---
         if data is None or data.empty:

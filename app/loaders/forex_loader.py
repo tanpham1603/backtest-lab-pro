@@ -8,49 +8,41 @@ class ForexLoader:
     """
     def fetch(self, pair="EURUSD=X", tf="1h", period="100d"):
         """
-        Tải dữ liệu và trả về dưới dạng Pandas DataFrame.
-        Sử dụng start/end date để tăng độ ổn định.
+        Tải dữ liệu và trả về dưới dạng Pandas DataFrame đã được chuẩn hóa.
         
         Args:
             pair (str): Cặp tiền tệ hoặc mã cổ phiếu.
-            tf (str): Khung thời gian ('1h', '1d').
-            period (str): Khoảng thời gian ('100d', '1y').
+            tf (str): Khung thời gian ('1h', '1d', v.v.).
+            period (str): Khoảng thời gian ('100d', '1y', '6mo', v.v.).
         """
-        print(f"Đang tải dữ liệu cho {pair} khung thời gian {tf}...")
+        print(f"Đang tải dữ liệu cho {pair}, khung thời gian {tf}, khoảng thời gian {period}...")
         try:
             # --- PHẦN SỬA LỖI ---
-            # Chuyển đổi period (ví dụ: '100d') thành ngày bắt đầu cụ thể
-            # Điều này giúp yfinance hoạt động ổn định hơn
-            
-            # Lấy số ngày từ chuỗi period (ví dụ: '100d' -> 100)
-            days_to_subtract = int(period[:-1])
-            
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days_to_subtract)
-            
-            # Tải dữ liệu bằng yfinance với start và end date
+            # Sử dụng trực tiếp tham số 'period' của yfinance.
+            # Thư viện này có thể tự xử lý các định dạng như '100d', '1y', 'max'.
+            # Điều này đơn giản và đáng tin cậy hơn việc tự tính toán ngày bắt đầu/kết thúc.
             data = yf.download(
-                pair, 
-                start=start_date, 
-                end=end_date, 
+                tickers=pair, 
+                period=period, 
                 interval=tf, 
                 progress=False
             )
-            # --------------------
             
             if data.empty:
-                print(f"Không có dữ liệu cho {pair}.")
+                print(f"Không có dữ liệu cho {pair} với các tham số đã cho.")
                 return pd.DataFrame()
             
-            # Đổi tên cột để nhất quán
-            data.rename(columns={
-                'Open': 'Open',
-                'High': 'High',
-                'Low': 'Low',
-                'Close': 'Close',
-                'Volume': 'Volume'
-            }, inplace=True)
-            
+            # --- SỬA LỖI QUAN TRỌNG ---
+            # Chuẩn hóa tên cột để xử lý cả trường hợp tên cột là tuple (ví dụ: ('Open', ''))
+            # hoặc chuỗi thường (ví dụ: 'Open'). Điều này tránh lỗi 'KeyError' và 'AttributeError'.
+            data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
+
+            # Kiểm tra xem các cột cần thiết có tồn tại không
+            required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+            if not all(col in data.columns for col in required_cols):
+                 print(f"Dữ liệu tải về thiếu các cột cần thiết. Các cột hiện có: {list(data.columns)}")
+                 return pd.DataFrame()
+
             print("Tải dữ liệu thành công.")
             return data
 
@@ -61,7 +53,13 @@ class ForexLoader:
 # Ví dụ cách sử dụng
 if __name__ == '__main__':
     loader = ForexLoader()
-    print("--- Tải dữ liệu Forex ---")
+    
+    print("\n--- Tải dữ liệu Forex (30 ngày) ---")
     forex_df = loader.fetch("EURUSD=X", tf="1d", period="30d")
     if not forex_df.empty:
         print(forex_df.tail())
+
+    print("\n--- Tải dữ liệu Cổ phiếu (1 năm) ---")
+    stock_df = loader.fetch("AAPL", tf="1d", period="1y")
+    if not stock_df.empty:
+        print(stock_df.tail())
