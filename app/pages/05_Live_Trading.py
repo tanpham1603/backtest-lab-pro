@@ -1,10 +1,16 @@
 import streamlit as st
-from alpaca_trade_api.rest import REST, APIError
 import pandas as pd
 import joblib
 import yfinance as yf
 import os
 import time
+import numpy as np
+
+# --- Import các thành phần cần thiết từ thư viện alpaca-py MỚI ---
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.common.exceptions import APIError # Lớp xử lý lỗi mới
 
 # --- Cấu hình trang ---
 st.set_page_config(page_title="Live Trading", page_icon="📈", layout="wide")
@@ -14,8 +20,7 @@ st.title("📈 Live Trading (Paper Trading demo)")
 class AlpacaTrader:
     def __init__(self, api_key, api_secret):
         try:
-            # Kết nối đến môi trường paper trading
-            self.api = REST(api_key, api_secret, base_url='https://paper-api.alpaca.markets', api_version='v2')
+            self.api = TradingClient(api_key, api_secret, paper=True)
             self.account = self.api.get_account()
             self.connected = True
         except APIError as e:
@@ -23,51 +28,53 @@ class AlpacaTrader:
             self.account = None
             self.connected = False
             st.error(f"Lỗi kết nối Alpaca: {e}")
+        except Exception as e:
+            self.api = None
+            self.account = None
+            self.connected = False
+            st.error(f"Đã xảy ra lỗi không xác định: {e}")
 
     def get_account_info(self):
-        return self.account
+        return self.api.get_account()
 
     def get_positions(self):
-        return self.api.list_positions()
+        return self.api.get_all_positions()
 
     def place_order(self, symbol, qty, side, order_type='market', time_in_force='gtc'):
-        """Đặt lệnh giao dịch"""
         try:
-            order = self.api.submit_order(
-                symbol=symbol,
-                qty=qty,
-                side=side,
-                type=order_type,
-                time_in_force=time_in_force
-            )
-            st.success(f"Đã đặt lệnh {side.upper()} {qty} cổ phiếu {symbol} thành công!")
-            return order
+            order_side_enum = OrderSide.BUY if side.lower() == 'buy' else OrderSide.SELL
+            time_in_force_enum = TimeInForce.GTC if time_in_force.lower() == 'gtc' else TimeInForce.DAY
+
+            if order_type.lower() == 'market':
+                market_order_data = MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty,
+                    side=order_side_enum,
+                    time_in_force=time_in_force_enum
+                )
+                order = self.api.submit_order(order_data=market_order_data)
+                st.success(f"Đã đặt lệnh {side.upper()} {qty} cổ phiếu {symbol} thành công!")
+                return order
+            else:
+                st.error(f"Loại lệnh '{order_type}' chưa được hỗ trợ trong phiên bản này.")
+                return None
         except APIError as e:
             st.error(f"Lỗi khi đặt lệnh: {e}")
             return None
 
 # --- Hàm để lấy tín hiệu từ mô hình ML ---
-@st.cache_data(ttl=60) # Cache kết quả trong 60 giây
+@st.cache_data(ttl=60)
 def get_ml_signal(symbol):
-    """
-    Hàm này tải dữ liệu mới nhất, tính toán chỉ báo,
-    và dùng mô hình ML đã lưu để đưa ra dự đoán.
-    """
     try:
-        # 1. Tải mô hình đã được huấn luyện
         model_path = "app/ml_signals/rf_signal.pkl"
         if not os.path.exists(model_path):
-            st.warning("Chưa có mô hình ML. Vui lòng chạy train_model.py trước.")
+            st.warning(f"Không tìm thấy mô hình tại: {model_path}. Vui lòng kiểm tra lại đường dẫn.")
             return "HOLD"
-            
         model = joblib.load(model_path)
-
-        # 2. Tải dữ liệu 100 ngày gần nhất để tính chỉ báo
         data = yf.download(symbol, period="100d", interval="1d", progress=False)
-        if data.empty:
-            return "HOLD"
-
-        # 3. Tính toán các đặc trưng (features) giống như lúc train
+        if data is None or data.empty:
+            st.error(f"Không tải được dữ liệu cho {symbol} từ yfinance.")
+            return "ERROR"
         delta = data['Close'].diff(1)
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
@@ -77,92 +84,97 @@ def get_ml_signal(symbol):
         data['RSI'] = 100 - (100 / (1 + rs))
         data["MA20"] = data["Close"].rolling(20).mean()
         data.dropna(inplace=True)
-
-        # 4. Lấy dòng dữ liệu cuối cùng để dự đoán
+        if data.empty:
+            st.warning("Không đủ dữ liệu để tính toán chỉ báo.")
+            return "HOLD"
         latest_features = data[["RSI", "MA20"]].iloc[-1:]
-        
-        # 5. Đưa ra dự đoán
         prediction = model.predict(latest_features)[0]
-        
-        if prediction == 1:
-            return "BUY"
-        else:
-            return "SELL" # Hoặc "HOLD" tùy logic của bạn
-
+        return "BUY" if prediction == 1 else "SELL"
     except Exception as e:
         st.error(f"Lỗi khi lấy tín hiệu ML: {e}")
         return "ERROR"
 
-# --- Giao diện Streamlit ---
+# --- Giao diện Streamlit (TỐI ƯU HÓA VỚI ST.SECRETS) ---
 
-# Dùng session_state để lưu trữ kết nối
 if 'trader' not in st.session_state:
     st.session_state.trader = None
 
-# Sidebar để nhập API key
+# Cố gắng kết nối tự động bằng st.secrets nếu chưa kết nối
+if not st.session_state.trader:
+    try:
+        if "ALPACA_API_KEY" in st.secrets and "ALPACA_API_SECRET" in st.secrets:
+            with st.spinner("Đang kết nối tự động bằng secrets..."):
+                st.session_state.trader = AlpacaTrader(st.secrets["ALPACA_API_KEY"], st.secrets["ALPACA_API_SECRET"])
+    except Exception:
+        pass
+
+# Sidebar để quản lý kết nối
 with st.sidebar:
     st.header("Kết nối Alpaca")
-    api_key = st.text_input("Nhập Alpaca API Key", type="password")
-    api_secret = st.text_input("Nhập Alpaca API Secret", type="password")
-
-    if st.button("Kết nối"):
-        if api_key and api_secret:
-            with st.spinner("Đang kết nối..."):
-                # --- SỬA LỖI Ở ĐÂY ---
-                # Tự động xóa khoảng trắng ở đầu và cuối key
-                cleaned_api_key = api_key.strip()
-                cleaned_api_secret = api_secret.strip()
-                st.session_state.trader = AlpacaTrader(cleaned_api_key, cleaned_api_secret)
-                # -------------------------
-        else:
-            st.warning("Vui lòng nhập đủ API key và Secret!")
+    if st.session_state.trader and st.session_state.trader.connected:
+        st.success("✅ Đã kết nối với Alpaca!")
+    else:
+        st.warning("⚠️ Chưa kết nối.")
+        st.info("Nhập API Key và Secret để kết nối thủ công.")
+        api_key = st.text_input("Nhập Alpaca API Key", type="password", key="manual_api_key")
+        api_secret = st.text_input("Nhập Alpaca API Secret", type="password", key="manual_api_secret")
+        if st.button("Kết nối thủ công"):
+            if api_key and api_secret:
+                with st.spinner("Đang kết nối..."):
+                    st.session_state.trader = AlpacaTrader(api_key.strip(), api_secret.strip())
+                    st.rerun()
+            else:
+                st.warning("Vui lòng nhập đủ API key và Secret!")
 
 # --- Nội dung chính của trang ---
 
 if st.session_state.trader and st.session_state.trader.connected:
     trader = st.session_state.trader
-    account = trader.get_account_info()
-
-    # Tab để hiển thị các thông tin khác nhau
     tab1, tab2, tab3 = st.tabs(["📊 Tổng quan", "📈 Vị thế", "🤖 Giao dịch tự động"])
 
     with tab1:
         st.subheader("Tổng quan tài khoản")
+        account = trader.get_account_info()
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Giá trị danh mục", f"${float(account.portfolio_value):,.2f}")
         col2.metric("Sức mua", f"${float(account.buying_power):,.2f}")
         col3.metric("Tiền mặt", f"${float(account.cash):,.2f}")
-        col4.metric("Trạng thái", account.status)
+        col4.metric("Trạng thái", account.status.value.upper())
 
     with tab2:
         st.subheader("Các vị thế hiện tại")
         positions = trader.get_positions()
         if positions:
-            positions_data = [{"Symbol": p.symbol, "Qty": p.qty, "Avg Entry Price": p.avg_entry_price, "Current Price": p.current_price, "P/L": p.unrealized_pl} for p in positions]
-            st.dataframe(positions_data, use_container_width=True)
+            positions_data = [{
+                "Symbol": p.symbol, "Qty": float(p.qty), "Avg Entry Price": float(p.avg_entry_price),
+                "Current Price": float(p.current_price), "P/L": float(p.unrealized_pl)
+            } for p in positions]
+            df_positions = pd.DataFrame(positions_data)
+            st.dataframe(df_positions, use_container_width=True)
         else:
             st.info("Không có vị thế nào đang mở.")
 
     with tab3:
         st.subheader("🤖 Giao dịch tự động dựa trên tín hiệu ML")
-        
         symbol_to_trade = st.text_input("Nhập mã cổ phiếu để theo dõi:", "SPY").upper()
-        
-        if st.button(f"Kiểm tra tín hiệu cho {symbol_to_trade}"):
+        trade_qty = st.number_input("Số lượng mỗi lệnh:", min_value=1, value=10)
+        if st.button(f"Kiểm tra và Giao dịch cho {symbol_to_trade}"):
             with st.spinner(f"Đang lấy tín hiệu cho {symbol_to_trade}..."):
                 signal = get_ml_signal(symbol_to_trade)
                 st.metric(f"Tín hiệu mới nhất cho {symbol_to_trade}", signal)
-
-                # --- ĐOẠN CODE CỦA BẠN ĐƯỢỢC ĐẶT Ở ĐÂY ---
                 if signal == "BUY":
                     st.info(f"Tín hiệu MUA được phát hiện. Đang đặt lệnh...")
-                    trader.place_order(symbol=symbol_to_trade, qty=10, side="buy")
+                    trader.place_order(symbol=symbol_to_trade, qty=trade_qty, side="buy")
                 elif signal == "SELL":
                     st.warning(f"Tín hiệu BÁN được phát hiện. Đang đặt lệnh bán...")
-                    trader.place_order(symbol=symbol_to_trade, qty=10, side="sell")
-                else:
-                    st.write("Không có hành động nào được thực hiện.")
-                # ----------------------------------------
-
+                    current_positions = [p.symbol for p in trader.get_positions()]
+                    if symbol_to_trade in current_positions:
+                        trader.place_order(symbol=symbol_to_trade, qty=trade_qty, side="sell")
+                    else:
+                        st.warning(f"Không có vị thế {symbol_to_trade} để bán.")
+                elif signal == "ERROR":
+                    st.error("Không thể thực hiện giao dịch do lỗi lấy tín hiệu.")
+                else: # HOLD
+                    st.write("Tín hiệu là GIỮ. Không có hành động nào được thực hiện.")
 else:
-    st.info("👈 Vui lòng nhập API Key và Secret vào thanh bên trái để kết nối.")
+    st.info("👈 Vui lòng kết nối với Alpaca bằng cách sử dụng secrets hoặc nhập thông tin vào thanh bên trái.")

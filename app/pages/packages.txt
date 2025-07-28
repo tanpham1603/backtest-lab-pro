@@ -1,0 +1,4 @@
+build-essential
+wget
+tar
+libta-lib-dev

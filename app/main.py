@@ -10,17 +10,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        'Get Help': 'https://github.com/user/backtest-lab',
-        'Report a bug': 'https://github.com/user/backtest-lab/issues',
+        'Get Help': 'https://www.your-repo-link.com', # Thay link repo của bạn vào đây
+        'Report a bug': 'https://www.your-repo-link.com/issues', # Thay link repo của bạn vào đây
         'About': '''
-        # Backtest Lab Pro 🚀
-        **Phần mềm backtesting chuyên nghiệp**
-        
-        - Dashboard tương tác
-        - Tối ưu hóa chiến lược
-        - Quản lý rủi ro
-        - Tích hợp Live Trading
-        '''
+         # Backtest Lab Pro 🚀
+         **Hệ thống backtesting, tối ưu hóa và giao dịch thuật toán chuyên nghiệp.**
+         
+         Phát triển để cung cấp một môi trường mạnh mẽ cho các nhà giao dịch.
+         '''
     }
 )
 
@@ -28,77 +25,67 @@ st.set_page_config(
 # Các thành phần trong sidebar chính sẽ hiển thị trên tất cả các trang
 st.sidebar.title("🚀 Backtest Lab Pro")
 st.sidebar.markdown("---")
-
 # Hướng dẫn điều hướng
 st.sidebar.success("Chọn một chức năng ở trên ⬆️")
 
-# Các thông tin phụ có thể giữ lại ở sidebar
-with st.sidebar.expander("👤 Thông tin tài khoản (Demo)"):
-    st.success("✅ **Demo User**")
-    st.info("💰 Virtual Balance: $100,000")
-    st.metric("📊 Strategies Created", "23")
-
 # --- Nội dung chính của trang chủ ---
 
-st.title("🚀 Backtest Lab Professional")
-st.markdown("### Hệ thống backtesting và phân tích chiến lược giao dịch chuyên nghiệp")
+st.title("Chào mừng đến với Backtest Lab Pro 🚀")
+st.markdown("### Nền tảng toàn diện cho việc xây dựng và kiểm thử chiến lược giao dịch của bạn.")
 st.markdown("---")
+
+# --- Kiểm tra trạng thái kết nối API ---
+st.subheader("Trạng thái kết nối")
+try:
+    # Kiểm tra xem các key cần thiết có trong secrets không
+    if "ALPACA_API_KEY" in st.secrets and st.secrets["ALPACA_API_KEY"] and \
+       "ALPACA_API_SECRET" in st.secrets and st.secrets["ALPACA_API_SECRET"]:
+        st.success("✅ Đã tìm thấy thông tin API trong `secrets.toml`. Các trang chức năng đã sẵn sàng.")
+    else:
+        st.warning("⚠️ Không tìm thấy thông tin API. Vui lòng kiểm tra lại tệp `.streamlit/secrets.toml`.")
+        st.code("""
+# Thêm vào file .streamlit/secrets.toml
+ALPACA_API_KEY = "YOUR_API_KEY_HERE"
+ALPACA_API_SECRET = "YOUR_SECRET_KEY_HERE"
+        """, language="toml")
+except Exception:
+    st.error("❌ Chưa có tệp `secrets.toml`. Vui lòng tạo tệp trong thư mục `.streamlit`.")
+    st.code("""
+# Tạo tệp .streamlit/secrets.toml và thêm vào nội dung sau:
+ALPACA_API_KEY = "YOUR_API_KEY_HERE"
+ALPACA_API_SECRET = "YOUR_SECRET_KEY_HERE"
+    """, language="toml")
+
+st.markdown("---")
+
 
 # Giới thiệu các tính năng chính
 st.subheader("Các tính năng chính")
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.info("""
-    📊 **Dashboard**
-    - Biểu đồ tương tác
-    - Real-time metrics
-    - Multi-timeframe
+    st.markdown("""
+    #### 📊 Phân tích & Backtest
+    - Kiểm thử chiến lược trên dữ liệu lịch sử.
+    - Xem các chỉ số hiệu suất chi tiết (Sharpe, Drawdown, Winrate...).
+    - Biểu đồ hóa kết quả một cách trực quan.
     """)
 
 with col2:
-    st.success("""
-    🔧 **Strategy Builder**
-    - Drag & Drop
-    - 15+ Indicators
-    - Custom logic
+    st.markdown("""
+    #### ⚡ Tối ưu hóa
+    - Tinh chỉnh các tham số của chiến lược.
+    - Sử dụng Grid Search để tìm ra bộ tham số tốt nhất.
+    - So sánh hiệu quả giữa các bộ tham số.
     """)
 
 with col3:
-    st.warning("""
-    ⚡ **Optimizer**
-    - Grid Search
-    - Random Search
-    - Bayesian Opt
+    st.markdown("""
+    #### 🤖 Giao dịch Live
+    - Tích hợp với Alpaca cho paper/live trading.
+    - Tự động thực thi giao dịch dựa trên tín hiệu.
+    - Theo dõi tài khoản và các vị thế đang mở.
     """)
 
-with col4:
-    st.error("""
-    🛡️ **Risk Manager**
-    - Stop Loss/Profit
-    - Position Sizing
-    - Portfolio Risk
-    """)
+st.info("Bắt đầu bằng cách chọn một chức năng từ thanh điều hướng bên trái.", icon="👈")
 
-st.markdown("---")
-
-# Demo nhanh một biểu đồ
-st.subheader("🎯 Demo nhanh Biểu đồ")
-
-# Tạo dữ liệu mẫu
-dates = pd.date_range('2023-01-01', periods=100, freq='D')
-price = 100 + np.cumsum(np.random.randn(100) * 0.5)
-
-# Vẽ biểu đồ
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=dates, y=price, name='Price', line=dict(color='cyan')))
-fig.update_layout(
-    title="Biểu đồ giá mẫu",
-    template="plotly_dark",
-    height=400
-)
-st.plotly_chart(fig, use_container_width=True)
-try:
-    st.success("🔑 API KEY: " + st.secrets["ALPACA_API_KEY"])
-except Exception as e:
-    st.error(f"❌ Lỗi khi đọc secrets: {e}")
