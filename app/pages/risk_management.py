@@ -3,24 +3,31 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-import sys
-import os
-
-# Thêm đường dẫn để import các module từ thư mục app
-try:
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if project_root not in sys.path:
-        sys.path.append(project_root)
-    # Lưu ý: Trang này hiện đang dùng dữ liệu mẫu, chưa cần đến loader
-    # from loaders.data_loader import DataLoader 
-except ImportError:
-    st.error("Lỗi import. Vui lòng kiểm tra lại cấu trúc thư mục.")
-    st.stop()
 
 # --- Cấu hình trang ---
 st.set_page_config(page_title="Risk Manager", page_icon="🛡️", layout="wide")
 
-# --- Lớp quản lý rủi ro (tận dụng từ code cũ) ---
+# --- Tùy chỉnh CSS ---
+st.markdown("""
+    <style>
+        .main {
+            background-color: #0E1117;
+        }
+        .stMetric {
+            background-color: #161B22;
+            border: 1px solid #30363D;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stButton>button {
+            width: 100%;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+
+# --- Lớp quản lý rủi ro ---
 class RiskManager:
     """Hệ thống quản lý rủi ro nâng cao"""
     
@@ -30,19 +37,14 @@ class RiskManager:
         
     def calculate_position_size(self, price, stop_loss_price, risk_percent=2):
         """Tính kích thước vị thế dựa trên % rủi ro"""
-        risk_per_share = abs(price - stop_loss_price)
+        if price <= stop_loss_price:
+            return 0, 0 # Tránh lỗi chia cho 0 hoặc rủi ro không hợp lệ
+            
+        risk_per_share = price - stop_loss_price
         risk_amount = self.current_capital * (risk_percent / 100)
         
-        if risk_per_share == 0:
-            return 0
-            
         position_size = int(risk_amount / risk_per_share)
-        max_position_value = self.current_capital * 0.1  # Giới hạn tối đa 10% vốn cho mỗi vị thế
-        
-        if position_size * price > max_position_value:
-            position_size = int(max_position_value / price)
-            
-        return position_size
+        return position_size, risk_amount
     
     def calculate_kelly_criterion(self, win_rate, avg_win, avg_loss):
         """Tính Kelly Criterion cho position sizing"""
@@ -65,23 +67,23 @@ class RiskManager:
 def main():
     st.title("🛡️ Hệ thống Quản lý Rủi ro")
     st.markdown("### Phân tích rủi ro, tính toán kích thước vị thế và mô phỏng danh mục.")
-    
-    # Sidebar
-    st.sidebar.header("🎛️ Tham số Rủi ro")
-    initial_capital = st.sidebar.number_input("💰 Vốn ban đầu ($)", 10000, 1000000, 100000)
-    max_risk_per_trade = st.sidebar.slider("📉 Rủi ro tối đa mỗi giao dịch (%)", 0.5, 10.0, 2.0, 0.1)
-    
-    # Khởi tạo đối tượng RiskManager
+
+    # --- Sidebar ---
+    with st.sidebar:
+        st.image("https://streamlit.io/images/brand/streamlit-logo-secondary-colormark-darktext.png", width=200)
+        st.header("🎛️ Tham số Rủi ro")
+        initial_capital = st.number_input("💰 Vốn ban đầu ($)", 10000, 1000000, 100000)
+        
     risk_manager = RiskManager(initial_capital)
 
-    # Tạo các tab chức năng
+    # --- Giao diện Tabs ---
     tab1, tab2, tab3 = st.tabs(["🎯 Tính toán Vị thế", "🎲 Mô phỏng Monte Carlo", "📊 Phân tích Danh mục"])
 
     # --- Tab 1: Position Sizing ---
     with tab1:
         st.subheader("🎯 Công cụ Tính toán Kích thước Vị thế")
         
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns([1, 1])
         
         with col1:
             st.markdown("**Thiết lập Giao dịch**")
@@ -89,25 +91,32 @@ def main():
             stop_loss_price = st.number_input("Giá dừng lỗ ($)", 0.01, 10000.0, 140.0, 0.01)
             sizing_method = st.selectbox("Phương pháp tính:", ["Fixed Risk %", "Kelly Criterion"])
             
-            if sizing_method == "Kelly Criterion":
-                win_rate = st.slider("Tỷ lệ thắng (%)", 30, 90, 60) / 100
-                avg_win = st.number_input("Lợi nhuận trung bình ($)", 1, 1000, 50)
-                avg_loss = st.number_input("Lỗ trung bình ($)", 1, 1000, 30)
+            if sizing_method == "Fixed Risk %":
+                risk_percent = st.slider("📉 Rủi ro mỗi giao dịch (%)", 0.5, 5.0, 2.0, 0.1)
+            else: # Kelly Criterion
+                st.info("Nhập các thông số từ kết quả backtest của bạn.")
+                win_rate = st.slider("Tỷ lệ thắng (%)", 1, 100, 60) / 100
+                avg_win = st.number_input("Lợi nhuận trung bình ($)", 1.0, 1000.0, 50.0, 0.1)
+                avg_loss = st.number_input("Lỗ trung bình ($)", 1.0, 1000.0, 30.0, 0.1)
 
         with col2:
             st.markdown("**Kết quả Phân tích**")
             
+            position_size = 0
+            risk_amount_val = 0
+            
             if sizing_method == "Fixed Risk %":
-                position_size = risk_manager.calculate_position_size(entry_price, stop_loss_price, max_risk_per_trade)
+                position_size, risk_amount_val = risk_manager.calculate_position_size(entry_price, stop_loss_price, risk_percent)
             elif sizing_method == "Kelly Criterion":
                 kelly_fraction = risk_manager.calculate_kelly_criterion(win_rate, avg_win, avg_loss)
-                position_size = int((initial_capital * kelly_fraction) / entry_price)
+                risk_amount_val = initial_capital * kelly_fraction
+                position_size = int(risk_amount_val / entry_price) if entry_price > 0 else 0
             
             position_value = position_size * entry_price
             
             st.metric("Kích thước vị thế (Số cổ phiếu)", f"{position_size:,}")
             st.metric("Giá trị vị thế", f"${position_value:,.2f}")
-            st.metric("% Vốn sử dụng", f"{(position_value/initial_capital)*100:.2f}%")
+            st.metric("Rủi ro trên Vốn", f"${risk_amount_val:,.2f} ({(risk_amount_val/initial_capital):.2%})")
 
     # --- Tab 2: Monte Carlo Simulation ---
     with tab2:
@@ -122,25 +131,31 @@ def main():
             time_horizon = st.slider("Số ngày mô phỏng", 30, 1000, 252)
             num_simulations = st.select_slider("Số lần mô phỏng", [100, 500, 1000, 2000], 1000)
 
-            if st.button("🎲 Chạy Mô phỏng"):
+            if st.button("🎲 Chạy Mô phỏng", type="primary"):
                 with st.spinner("Đang chạy mô phỏng..."):
                     paths = risk_manager.simulate_portfolio_monte_carlo(expected_return, annual_volatility, time_horizon, num_simulations)
                     st.session_state.mc_results = paths
+                    st.session_state.mc_params = {'sims': num_simulations, 'initial': initial_capital}
 
         with col2:
             if 'mc_results' in st.session_state:
                 paths = st.session_state.mc_results
+                params = st.session_state.mc_params
                 final_values = paths[-1, :]
 
                 fig = go.Figure()
-                for i in range(min(100, num_simulations)): # Chỉ vẽ 100 đường để không bị lag
+                # Chỉ vẽ 100 đường để không bị lag
+                for i in range(min(100, params['sims'])):
                     fig.add_trace(go.Scatter(y=paths[:, i], mode='lines', line=dict(width=1, color='rgba(100,149,237,0.2)'), showlegend=False))
                 
-                fig.update_layout(title=f'{num_simulations} Kịch bản cho Danh mục', template="plotly_dark")
+                fig.update_layout(title=f'{params["sims"]} Kịch bản cho Danh mục', template="plotly_dark", height=400)
                 st.plotly_chart(fig, use_container_width=True)
 
-                st.metric("Giá trị trung bình cuối kỳ", f"${np.mean(final_values):,.2f}")
-                st.metric("Xác suất lỗ", f"{(final_values < initial_capital).mean():.2%}")
+                mc_col1, mc_col2, mc_col3 = st.columns(3)
+                mc_col1.metric("Giá trị trung bình cuối kỳ", f"${np.mean(final_values):,.2f}")
+                mc_col2.metric("Giá trị tốt nhất", f"${np.max(final_values):,.2f}")
+                mc_col3.metric("Giá trị tệ nhất", f"${np.min(final_values):,.2f}")
+                st.metric("Xác suất lỗ (Value < Initial Capital)", f"{(final_values < params['initial']).mean():.2%}")
 
     # --- Tab 3: Portfolio Risk ---
     with tab3:

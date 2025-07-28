@@ -11,29 +11,50 @@ import yfinance as yf
 
 # --- Cấu hình trang ---
 st.set_page_config(page_title="Optimizer", page_icon="⚡", layout="wide")
-st.title("⚡ Grid-Search Tối ưu hóa MA-Cross")
 
-# --- Sidebar để người dùng tùy chỉnh ---
-st.sidebar.header("🎛️ Cấu hình Tối ưu hóa")
+# --- Tùy chỉnh CSS ---
+st.markdown("""
+    <style>
+        .main {
+            background-color: #0E1117;
+        }
+        .stMetric {
+            background-color: #161B22;
+            border: 1px solid #30363D;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stButton>button {
+            width: 100%;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-asset_class = st.sidebar.selectbox("Loại tài sản:", ["Crypto", "Forex", "Stocks"], key="optimizer_asset")
 
-if asset_class == "Crypto":
-    symbol = st.sidebar.text_input("Mã giao dịch:", "BTC/USDT", key="optimizer_crypto_symbol")
-    tf = st.sidebar.selectbox("Khung thời gian:", ["1h", "4h", "1d"], index=0, key="optimizer_crypto_tf")
-else:
-    symbol = st.sidebar.text_input("Mã giao dịch:", "EURUSD=X" if asset_class == "Forex" else "AAPL", key="optimizer_stock_symbol")
-    tf = st.sidebar.selectbox("Khung thời gian:", ["1d"], index=0, key="optimizer_stock_tf")
+# --- Sidebar ---
+with st.sidebar:
+    st.image("https://streamlit.io/images/brand/streamlit-logo-secondary-colormark-darktext.png", width=200)
+    st.header("🎛️ Cấu hình Tối ưu hóa")
 
-st.sidebar.subheader("Dải tham số")
-fasts = st.sidebar.multiselect("Danh sách MA Nhanh:", [5, 10, 15, 20, 25, 30], default=[10, 20], key="optimizer_fasts")
-slows = st.sidebar.multiselect("Danh sách MA Chậm:", [40, 50, 60, 100, 150, 200], default=[50, 100], key="optimizer_slows")
+    asset_class = st.selectbox("Loại tài sản:", ["Crypto", "Forex", "Stocks"], key="optimizer_asset")
 
-target_metric = st.sidebar.selectbox(
-    "Chỉ số mục tiêu:",
-    ["Sharpe", "Return", "Win Rate", "Profit Factor"],
-    key="optimizer_metric"
-)
+    if asset_class == "Crypto":
+        symbol = st.text_input("Mã giao dịch:", "BTC/USDT", key="optimizer_crypto_symbol")
+        tf = st.selectbox("Khung thời gian:", ["1h", "4h", "1d"], index=0, key="optimizer_crypto_tf")
+    else:
+        symbol = st.text_input("Mã giao dịch:", "EURUSD=X" if asset_class == "Forex" else "AAPL", key="optimizer_stock_symbol")
+        tf = st.selectbox("Khung thời gian:", ["1d"], index=0, key="optimizer_stock_tf")
+
+    st.subheader("Dải tham số")
+    fasts = st.multiselect("Danh sách MA Nhanh:", [5, 10, 15, 20, 25, 30], default=[10, 20], key="optimizer_fasts")
+    slows = st.multiselect("Danh sách MA Chậm:", [40, 50, 60, 100, 150, 200], default=[50, 100], key="optimizer_slows")
+
+    target_metric = st.selectbox(
+        "Chỉ số mục tiêu:",
+        ["Sharpe", "Return", "Win Rate", "Profit Factor"],
+        key="optimizer_metric"
+    )
 
 # --- Hàm tải dữ liệu an toàn ---
 @st.cache_data(ttl=600)
@@ -48,7 +69,7 @@ def load_price_data(asset, sym, timeframe):
             data.set_index('timestamp', inplace=True)
         else: # Forex và Stocks
             period = "5y" # Tải dữ liệu 5 năm để tối ưu hóa
-            data = yf.download(sym, period=period, interval=timeframe, progress=False)
+            data = yf.download(sym, period=period, interval=timeframe, progress=False, auto_adjust=True)
             data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
 
         if data is None or data.empty:
@@ -61,9 +82,6 @@ def load_price_data(asset, sym, timeframe):
             
         return data["Close"]
 
-    except ccxt.BadSymbol as e:
-        st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ. Lỗi: {e}")
-        return None
     except Exception as e:
         st.error(f"Lỗi hệ thống khi tải dữ liệu cho {sym}: {e}")
         return None
@@ -74,7 +92,10 @@ def get_scalar(value):
         return value.iloc[0] if not value.empty else np.nan
     return value
 
-# --- Chạy tối ưu hóa khi người dùng nhấn nút ---
+# --- Giao diện chính ---
+st.title("⚡ Grid-Search Tối ưu hóa MA-Cross")
+st.markdown("### Tìm ra bộ tham số hiệu quả nhất cho chiến lược giao cắt đường trung bình động.")
+
 if st.sidebar.button("🚀 Chạy Tối ưu hóa", type="primary"):
     price = load_price_data(asset_class, symbol, tf)
     
@@ -118,18 +139,17 @@ if st.sidebar.button("🚀 Chạy Tối ưu hóa", type="primary"):
                 df.sort_values(target_metric, ascending=False, na_position='last', inplace=True)
                 df.reset_index(drop=True, inplace=True)
                 
-                st.subheader("📊 Kết quả Tối ưu hóa")
-                st.dataframe(df.style.format({
-                    "Sharpe": "{:.2f}", "Return": "{:.2%}",
-                    "Win Rate": "{:.2%}", "Profit Factor": "{:.2f}"
-                }))
-                
+                st.header("🏆 Kết quả Tốt nhất")
                 best_df = df.dropna(subset=[target_metric])
                 if not best_df.empty:
                     best = best_df.iloc[0]
-                    st.success(f"🏆 **Tốt nhất:** Fast={int(best.Fast)}, Slow={int(best.Slow)} | {target_metric}={best[target_metric]:.2f}")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Cặp MA Tốt nhất", f"{int(best.Fast)} / {int(best.Slow)}")
+                    col2.metric(f"Chỉ số {target_metric}", f"{best[target_metric]:.2f}")
+                    col3.metric("Tổng Lợi nhuận", f"{best['Return']:.2%}")
+                    col4.metric("Tổng số Giao dịch", f"{best['Trades']:.0f}")
 
-                st.subheader("Trực quan hóa Heatmap")
+                st.subheader("📈 Trực quan hóa Heatmap")
                 try:
                     heatmap_df = df.dropna(subset=[target_metric]).pivot(index='Slow', columns='Fast', values=target_metric)
                     if not heatmap_df.empty:
@@ -142,6 +162,12 @@ if st.sidebar.button("🚀 Chạy Tối ưu hóa", type="primary"):
                         st.warning("Không có đủ dữ liệu để vẽ heatmap.")
                 except Exception as e:
                     st.warning(f"Không thể vẽ heatmap: {e}")
+
+                with st.expander("🔬 Xem Bảng kết quả chi tiết"):
+                    st.dataframe(df.style.format({
+                        "Sharpe": "{:.2f}", "Return": "{:.2%}",
+                        "Win Rate": "{:.2%}", "Profit Factor": "{:.2f}"
+                    }))
             else:
                 st.warning("Không có kết quả nào được tạo ra.")
 else:

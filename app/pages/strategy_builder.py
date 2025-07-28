@@ -9,13 +9,30 @@ import pandas_ta as ta
 # --- Cấu hình trang ---
 st.set_page_config(page_title="🔧 Strategy Builder", page_icon="🔧", layout="wide")
 
+# --- Tùy chỉnh CSS ---
+st.markdown("""
+    <style>
+        .main {
+            background-color: #0E1117;
+        }
+        .stButton>button {
+            width: 100%;
+        }
+        .stExpander {
+            border: 1px solid #30363D;
+            border-radius: 10px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+
 def create_strategy_chart(data, indicators_dict, signals=None):
     """Tạo biểu đồ cho strategy builder"""
     fig = make_subplots(
         rows=4, cols=1,
         shared_xaxes=True,
         vertical_spacing=0.02,
-        row_heights=[0.4, 0.2, 0.2, 0.2],
+        row_heights=[0.5, 0.15, 0.15, 0.2],
         subplot_titles=('Price & Signals', 'RSI', 'MACD', 'Volume')
     )
     
@@ -41,7 +58,7 @@ def create_strategy_chart(data, indicators_dict, signals=None):
             )
 
     # Bollinger Bands
-    if 'BB' in indicators_dict:
+    if 'BB' in indicators_dict and indicators_dict['BB'] is not None:
         bb = indicators_dict['BB']
         fig.add_trace(go.Scatter(x=data.index, y=bb['Upper'], name='BB Upper', line=dict(color='gray', width=1, dash='dash')), row=1, col=1)
         fig.add_trace(go.Scatter(x=data.index, y=bb['Lower'], name='BB Lower', line=dict(color='gray', width=1, dash='dash')), row=1, col=1)
@@ -51,18 +68,18 @@ def create_strategy_chart(data, indicators_dict, signals=None):
         buy_signals = signals[signals == 1]
         sell_signals = signals[signals == -1]
         if not buy_signals.empty:
-            fig.add_trace(go.Scatter(x=buy_signals.index, y=data.loc[buy_signals.index, 'Low'] * 0.98, mode='markers', name='Buy Signal', marker=dict(symbol='triangle-up', size=10, color='green')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=buy_signals.index, y=data.loc[buy_signals.index, 'Low'] * 0.98, mode='markers', name='Buy Signal', marker=dict(symbol='triangle-up', size=10, color='#28a745')), row=1, col=1)
         if not sell_signals.empty:
-            fig.add_trace(go.Scatter(x=sell_signals.index, y=data.loc[sell_signals.index, 'High'] * 1.02, mode='markers', name='Sell Signal', marker=dict(symbol='triangle-down', size=10, color='red')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=sell_signals.index, y=data.loc[sell_signals.index, 'High'] * 1.02, mode='markers', name='Sell Signal', marker=dict(symbol='triangle-down', size=10, color='#dc3545')), row=1, col=1)
 
     # RSI
-    if 'RSI' in indicators_dict:
+    if 'RSI' in indicators_dict and indicators_dict['RSI'] is not None:
         fig.add_trace(go.Scatter(x=data.index, y=indicators_dict['RSI'], name='RSI', line=dict(color='purple')), row=2, col=1)
         fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
         fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
 
     # MACD
-    if 'MACD' in indicators_dict:
+    if 'MACD' in indicators_dict and indicators_dict['MACD'] is not None:
         macd = indicators_dict['MACD']
         fig.add_trace(go.Scatter(x=data.index, y=macd['MACD'], name='MACD', line=dict(color='blue')), row=3, col=1)
         fig.add_trace(go.Scatter(x=data.index, y=macd['Signal'], name='Signal', line=dict(color='red', dash='dot')), row=3, col=1)
@@ -79,15 +96,16 @@ def main():
     st.title("🔧 Strategy Builder")
     st.markdown("### Xây dựng và trực quan hóa chiến lược giao dịch của bạn.")
     
-    st.sidebar.header("🎛️ Cấu hình chiến lược")
-    
-    symbol = st.sidebar.selectbox("📈 Chọn mã:", ["AAPL", "MSFT", "GOOGL", "TSLA"])
-    period = st.sidebar.selectbox("📅 Thời gian:", ["6mo", "1y", "2y"], index=1)
+    with st.sidebar:
+        st.image("https://streamlit.io/images/brand/streamlit-logo-secondary-colormark-darktext.png", width=200)
+        st.header("🎛️ Cấu hình chiến lược")
+        symbol = st.selectbox("📈 Chọn mã:", ["AAPL", "MSFT", "GOOGL", "TSLA"])
+        period = st.selectbox("📅 Thời gian:", ["6mo", "1y", "2y"], index=1)
     
     @st.cache_data
     def load_data(symbol, period):
         try:
-            data = yf.download(symbol, period=period, progress=False)
+            data = yf.download(symbol, period=period, progress=False, auto_adjust=True)
             if data.empty:
                 st.error(f"Không có dữ liệu cho mã {symbol}.")
                 return None
@@ -169,7 +187,7 @@ def main():
         
         if macd_enabled and "MACD crosses above Signal" in str(entry_conditions):
             macd = indicators_dict.get('MACD')
-            if macd is not None:
+            if macd is not None and not macd.isnull().all().all():
                 signals[(macd['MACD'] > macd['Signal']) & (macd['MACD'].shift(1) <= macd['Signal'].shift(1))] = 1
         
         chart = create_strategy_chart(data, indicators_dict, signals)
