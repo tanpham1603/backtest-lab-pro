@@ -4,17 +4,8 @@ import pandas as pd
 import numpy as np
 import sys
 import os
-
-# Thêm đường dẫn để import các module từ thư mục app
-try:
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    if project_root not in sys.path:
-        sys.path.append(project_root)
-    from app.loaders.crypto_loader import CryptoLoader
-    from app.loaders.forex_loader import ForexLoader
-except ImportError:
-    st.error("Lỗi import: Không tìm thấy các file loader. Vui lòng kiểm tra lại cấu trúc thư mục.")
-    st.stop()
+import ccxt # Thêm ccxt
+import yfinance as yf # Thêm yfinance
 
 # --- Cấu hình trang ---
 st.set_page_config(page_title="Backtest", page_icon="🧪", layout="wide")
@@ -38,16 +29,26 @@ else: # Stocks
 fast_ma = st.sidebar.slider("MA Nhanh", 5, 50, 20)
 slow_ma = st.sidebar.slider("MA Chậm", 10, 200, 50)
 
-# --- Hàm tải dữ liệu với cache an toàn ---
-@st.cache_data(ttl=600)
+# --- Hàm tải dữ liệu với cache (ĐÃ CẬP NHẬT HOÀN CHỈNH) ---
+@st.cache_data(ttl=600) # Cache kết quả trong 10 phút
 def load_price_data(asset_type, sym, timeframe):
     """Tải về dữ liệu giá cho backtest một cách an toàn."""
     try:
         if asset_type == "Crypto":
-            data = CryptoLoader().fetch(sym, timeframe, 1000)
-        else: # Forex và Stocks dùng chung yfinance
-            data = ForexLoader().fetch(sym, timeframe, "730d")
+            exchange = ccxt.binance()
+            ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=1000)
+            data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+            data.set_index('timestamp', inplace=True)
+        else: # Forex và Stocks dùng yfinance
+            if timeframe not in ['1d', '1wk', '1mo']:
+                period = "730d" # yfinance giới hạn dữ liệu intraday
+            else:
+                period = "5y" # Tải 5 năm cho dữ liệu ngày
+            data = yf.download(sym, period=period, interval=timeframe, progress=False)
+            data.columns = [col.capitalize() for col in data.columns]
 
+        # --- KIỂM TRA AN TOÀN ---
         if data is None or data.empty:
             st.error(f"Không nhận được dữ liệu cho mã {sym}. API có thể đã bị lỗi hoặc mã không hợp lệ.")
             return None
@@ -57,6 +58,13 @@ def load_price_data(asset_type, sym, timeframe):
             return None
         
         return data["Close"]
+        # ----------------------
+    except ccxt.BadSymbol as e:
+        st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Binance. Lỗi: {e}")
+        return None
+    except ccxt.NetworkError as e:
+        st.error(f"Lỗi mạng CCXT: Không thể kết nối đến sàn giao dịch. Vui lòng thử lại. Lỗi: {e}")
+        return None
     except Exception as e:
         st.error(f"Lỗi hệ thống khi tải dữ liệu: {e}")
         return None
@@ -102,12 +110,9 @@ if st.sidebar.button("🚀 Chạy Backtest", type="primary"):
                 col2.metric("Tỷ lệ Sharpe (Sharpe Ratio)", f"{sharpe_ratio:.2f}" if not np.isnan(sharpe_ratio) else "N/A")
                 col3.metric("Tỷ lệ thắng (Win Rate)", f"{win_rate:.2%}" if not np.isnan(win_rate) else "N/A")
                 
-                # --- SỬA LỖI Ở ĐÂY ---
-                # Thay vì pf.plot(), chúng ta chỉ định rõ biểu đồ lợi nhuận lũy kế
                 st.subheader("Biểu đồ Lợi nhuận Lũy kế")
                 fig = pf.cumulative_returns().vbt.plot()
                 st.plotly_chart(fig, use_container_width=True)
-                # ---------------------
                 
                 st.subheader("Thống kê chi tiết")
                 st.dataframe(pf.stats())

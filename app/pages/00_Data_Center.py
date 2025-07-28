@@ -2,17 +2,8 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
-
-# Thêm đường dẫn để import các module từ thư mục app
-try:
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    if project_root not in sys.path:
-        sys.path.append(project_root)
-    from app.loaders.crypto_loader import CryptoLoader
-    from app.loaders.forex_loader import ForexLoader
-except ImportError:
-    st.error("Lỗi import: Không tìm thấy các file loader. Vui lòng kiểm tra lại cấu trúc thư mục.")
-    st.stop()
+import ccxt # Sử dụng trực tiếp ccxt
+import yfinance as yf # Sử dụng cho Forex/Stocks
 
 # --- Cấu hình trang ---
 st.set_page_config(page_title="Data Center", page_icon="🗃️", layout="wide")
@@ -36,21 +27,33 @@ else: # Stocks
     tf = st.sidebar.selectbox("Khung thời gian:", ["1d", "1h"], index=0)
     limit = st.sidebar.slider("Số nến:", 200, 1000, 500)
 
-# --- Hàm tải dữ liệu với cache (ĐÃ CẬP NHẬT) ---
+# --- Hàm tải dữ liệu với cache (ĐÃ CẬP NHẬT HOÀN CHỈNH) ---
 @st.cache_data(ttl=300) # Cache kết quả trong 5 phút
 def load_data(asset, sym, timeframe, data_limit):
-    """Tải dữ liệu dựa trên lựa chọn của người dùng một cách an toàn."""
+    """Tải dữ liệu dựa trên lựa chọn của người dùng một cách an toàn và chi tiết."""
     with st.spinner(f"Đang tải dữ liệu cho {sym}..."):
         try:
             if asset == "Crypto":
-                data = CryptoLoader().fetch(sym, timeframe, data_limit)
-            else: # Forex và Stocks đều dùng ForexLoader (yfinance)
-                if timeframe == '1d':
-                    period = f"{data_limit}d"
+                # Kết nối trực tiếp đến Binance
+                exchange = ccxt.binance()
+                # Tải dữ liệu OHLCV
+                ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=data_limit)
+                # Chuyển đổi sang DataFrame của pandas
+                data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                # Chuyển đổi timestamp sang định dạng ngày giờ
+                data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+                data.set_index('timestamp', inplace=True)
+            
+            else: # Forex và Stocks dùng yfinance
+                # yfinance có giới hạn cho dữ liệu intraday
+                if timeframe not in ['1d', '1wk', '1mo']:
+                    period = "60d" # Tải tối đa 60 ngày cho dữ liệu intraday
                 else:
-                    # yfinance giới hạn data < 1d trong 730 ngày
-                    period = f"{min(data_limit // 8, 729)}d"
-                data = ForexLoader().fetch(sym, timeframe, period)
+                    period = "2y" # Tải 2 năm cho dữ liệu ngày
+                
+                data = yf.download(sym, period=period, interval=timeframe, progress=False)
+                # Chuẩn hóa tên cột
+                data.columns = [col.capitalize() for col in data.columns]
 
             # --- KIỂM TRA AN TOÀN ---
             if data is None or data.empty:
@@ -59,18 +62,24 @@ def load_data(asset, sym, timeframe, data_limit):
             
             return data
             # ----------------------
+        except ccxt.BadSymbol as e:
+            st.error(f"Lỗi từ CCXT: Mã giao dịch '{sym}' không hợp lệ hoặc không được hỗ trợ trên Binance. Lỗi: {e}")
+            return None
+        except ccxt.NetworkError as e:
+            st.error(f"Lỗi mạng CCXT: Không thể kết nối đến sàn giao dịch. Vui lòng thử lại. Lỗi: {e}")
+            return None
         except Exception as e:
             st.error(f"Lỗi hệ thống khi tải dữ liệu cho {sym}: {e}")
             return None
 
-# --- Nút để tải và hiển thị dữ liệu (ĐÃ CẬP NHẬT) ---
+# --- Nút để tải và hiển thị dữ liệu ---
 if st.sidebar.button("Tải Dữ liệu", type="primary"):
     df = load_data(asset_class, symbol, tf, limit)
     
     if df is not None and not df.empty:
-        # Thêm kiểm tra cột 'Close' trước khi sử dụng
-        if 'Close' not in df.columns:
-            st.error(f"Dữ liệu cho {symbol} không có cột 'Close'.")
+        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        if not all(col in df.columns for col in required_cols):
+            st.error(f"Dữ liệu cho {symbol} không có đủ các cột cần thiết. Các cột hiện có: {list(df.columns)}")
         else:
             st.success(f"Đã tải thành công {len(df)} dòng dữ liệu cho {symbol}.")
             
@@ -80,7 +89,6 @@ if st.sidebar.button("Tải Dữ liệu", type="primary"):
             st.subheader("Dữ liệu thô (50 dòng cuối)")
             st.dataframe(df.tail(50))
     else:
-        # Thông báo lỗi chi tiết hơn đã được hiển thị bên trong hàm load_data
         st.info("Quá trình tải dữ liệu đã kết thúc. Nếu có lỗi, thông báo sẽ hiển thị ở trên.")
 else:
     st.info("👈 Vui lòng cấu hình và nhấn 'Tải Dữ liệu' ở thanh bên trái.")
