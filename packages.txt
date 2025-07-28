@@ -1,4 +1,5 @@
-build-essential
-wget
-tar
-libta-lib-dev
+ffmpeg
+libsm6
+libxext6
+libta-lib0
+ta-lib-dev
