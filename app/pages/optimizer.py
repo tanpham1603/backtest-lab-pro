@@ -4,20 +4,17 @@ import numpy as np
 import plotly.graph_objects as go
 import vectorbt as vbt
 from itertools import product
-import sys
-import os
+from datetime import datetime, timedelta
 import ccxt
 import yfinance as yf
 
 # --- Cấu hình trang ---
-st.set_page_config(page_title="Optimizer", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Optimizer Pro", page_icon="⚡", layout="wide")
 
 # --- Tùy chỉnh CSS ---
 st.markdown("""
     <style>
-        .main {
-            background-color: #0E1117;
-        }
+        .main { background-color: #0E1117; }
         .stMetric {
             background-color: #161B22;
             border: 1px solid #30363D;
@@ -25,150 +22,111 @@ st.markdown("""
             border-radius: 10px;
             text-align: center;
         }
-        .stButton>button {
-            width: 100%;
-        }
+        .stButton>button { width: 100%; }
     </style>
 """, unsafe_allow_html=True)
 
-
 # --- Sidebar ---
 with st.sidebar:
-    st.image("https://streamlit.io/images/brand/streamlit-logo-secondary-colormark-darktext.png", width=200)
     st.header("🎛️ Cấu hình Tối ưu hóa")
-
-    asset_class = st.selectbox("Loại tài sản:", ["Crypto", "Forex", "Stocks"], key="optimizer_asset")
-
+    asset_class = st.selectbox("Loại tài sản:", ["Crypto", "Forex", "Stocks"])
+    common_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
     if asset_class == "Crypto":
-        symbol = st.text_input("Mã giao dịch:", "BTC/USDT", key="optimizer_crypto_symbol")
-        tf = st.selectbox("Khung thời gian:", ["1h", "4h", "1d"], index=0, key="optimizer_crypto_tf")
+        symbol = st.text_input("Mã giao dịch:", "BTC/USDT")
+        tf = st.selectbox("Khung thời gian:", common_timeframes, index=4)
     else:
-        symbol = st.text_input("Mã giao dịch:", "EURUSD=X" if asset_class == "Forex" else "AAPL", key="optimizer_stock_symbol")
-        tf = st.selectbox("Khung thời gian:", ["1d"], index=0, key="optimizer_stock_tf")
-
+        symbol = st.text_input("Mã giao dịch:", "EURUSD=X" if asset_class == "Forex" else "AAPL")
+        tf = st.selectbox("Khung thời gian:", common_timeframes, index=6)
+    st.subheader("Khoảng thời gian Tối ưu")
+    yf_timeframe_limits = {"1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730}
+    end_date_default = datetime.now().date()
+    start_date_default = end_date_default - timedelta(days=730)
+    info_message = ""
+    if asset_class != 'Crypto' and tf in yf_timeframe_limits:
+        limit = yf_timeframe_limits[tf]
+        start_date_default = end_date_default - timedelta(days=limit - 1)
+        info_message = f"Gợi ý: Khung {tf} được giới hạn trong {limit} ngày."
+    end_date_input = st.date_input("Ngày kết thúc", value=end_date_default)
+    start_date_input = st.date_input("Ngày bắt đầu", value=start_date_default)
+    if info_message: st.caption(info_message)
     st.subheader("Dải tham số")
-    fasts = st.multiselect("Danh sách MA Nhanh:", [5, 10, 15, 20, 25, 30], default=[10, 20], key="optimizer_fasts")
-    slows = st.multiselect("Danh sách MA Chậm:", [40, 50, 60, 100, 150, 200], default=[50, 100], key="optimizer_slows")
+    fasts = st.multiselect("Danh sách MA Nhanh:", list(range(5, 51, 5)), default=[10, 20])
+    slows = st.multiselect("Danh sách MA Chậm:", list(range(30, 201, 10)), default=[50, 100])
+    target_metric = st.selectbox("Chỉ số mục tiêu:", ["Total Return [%]", "Sharpe Ratio", "Win Rate [%]", "Profit Factor"])
 
-    target_metric = st.selectbox(
-        "Chỉ số mục tiêu:",
-        ["Sharpe", "Return", "Win Rate", "Profit Factor"],
-        key="optimizer_metric"
-    )
-
-# --- Hàm tải dữ liệu an toàn ---
+# --- Hàm tải dữ liệu ---
 @st.cache_data(ttl=600)
-def load_price_data(asset, sym, timeframe):
-    """Tải về chuỗi giá đóng cửa cho backtest một cách an toàn."""
+def load_price_data(asset, sym, timeframe, start, end):
     try:
         if asset == "Crypto":
-            exchange = ccxt.kucoin()
-            ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=2000)
+            exchange = ccxt.binance()
+            since = int(datetime.combine(start, datetime.min.time()).timestamp() * 1000)
+            ohlcv = exchange.fetch_ohlcv(sym, timeframe, since=since, limit=5000)
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
             data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
             data.set_index('timestamp', inplace=True)
-        else: # Forex và Stocks
-            period = "5y" # Tải dữ liệu 5 năm để tối ưu hóa
-            data = yf.download(sym, period=period, interval=timeframe, progress=False, auto_adjust=True)
-            data.columns = [col[0].capitalize() if isinstance(col, tuple) else str(col).capitalize() for col in data.columns]
-
-        if data is None or data.empty:
-            st.error(f"Không nhận được dữ liệu cho mã {sym}. API có thể đã bị lỗi hoặc mã không hợp lệ.")
-            return None
-        
-        if 'Close' not in data.columns:
-            st.error(f"Dữ liệu trả về cho {sym} không chứa cột 'Close'.")
-            return None
-            
+            data = data[data.index <= pd.to_datetime(end)]
+        else:
+            yf_timeframe_map = {"1w": "1wk"}
+            interval = yf_timeframe_map.get(timeframe, timeframe)
+            data = yf.download(sym, start=start, end=end, interval=interval, progress=False, auto_adjust=True)
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
+            data.columns = [str(col).capitalize() for col in data.columns]
+        if data.empty: return None
         return data["Close"]
-
     except Exception as e:
         st.error(f"Lỗi hệ thống khi tải dữ liệu cho {sym}: {e}")
         return None
 
-# --- Hàm trợ giúp để lấy giá trị số ---
-def get_scalar(value):
-    if isinstance(value, pd.Series):
-        return value.iloc[0] if not value.empty else np.nan
-    return value
-
 # --- Giao diện chính ---
 st.title("⚡ Grid-Search Tối ưu hóa MA-Cross")
 st.markdown("### Tìm ra bộ tham số hiệu quả nhất cho chiến lược giao cắt đường trung bình động.")
-
 if st.sidebar.button("🚀 Chạy Tối ưu hóa", type="primary"):
-    price = load_price_data(asset_class, symbol, tf)
-    
-    if price is not None and not price.empty:
-        param_combinations = [p for p in product(fasts, slows) if p[0] < p[1]]
+    if start_date_input >= end_date_input:
+        st.error("Lỗi: Ngày bắt đầu phải trước ngày kết thúc.")
+    else:
+        price = load_price_data(asset_class, symbol, tf, start_date_input, end_date_input)
         
-        if not param_combinations:
-            st.warning("Không có cặp tham số hợp lệ nào (MA Nhanh phải < MA Chậm).")
-        else:
-            results = []
-            progress_bar = st.progress(0, text="Đang xử lý...")
-            status_text = st.empty()
+        if price is not None and not price.empty:
+            if not fasts or not slows:
+                 st.warning("Vui lòng chọn ít nhất một giá trị cho MA Nhanh và MA Chậm.")
+            else:
+                with st.spinner(f"Đang kiểm tra các kịch bản..."):
+                    fast_ma = vbt.MA.run(price, window=fasts, short_name='fast')
+                    slow_ma = vbt.MA.run(price, window=slows, short_name='slow')
+                    entries = fast_ma.ma_crossed_above(slow_ma)
+                    exits = fast_ma.ma_crossed_below(slow_ma)
+                    vbt_freq = tf.upper().replace('M', 'T')
+                    if vbt_freq == '1W': vbt_freq = 'W-MON'
+                    pf = vbt.Portfolio.from_signals(price, entries, exits, fees=0.001, freq=vbt_freq)
+                    
+                    # SỬA LỖI: Lấy chỉ số mục tiêu một cách an toàn
+                    metric_map = {"Sharpe Ratio": "sharpe_ratio", "Total Return [%]": "total_return", "Win Rate [%]": "trades.win_rate", "Profit Factor": "trades.profit_factor"}
+                    perf = pf.deep_getattr(metric_map[target_metric])
 
-            for i, (f, s) in enumerate(param_combinations):
-                status_text.text(f"Đang kiểm tra: MA({f}, {s})... ({i+1}/{len(param_combinations)})")
-                
-                fast_ma = price.rolling(f).mean()
-                slow_ma = price.rolling(s).mean()
-                entries = fast_ma > slow_ma
-                exits = fast_ma < slow_ma
-                
-                pf = vbt.Portfolio.from_signals(price, entries, exits, fees=0.001, freq=tf)
-                
-                results.append({
-                    "Fast": f, "Slow": s,
-                    "Sharpe": get_scalar(pf.sharpe_ratio()),
-                    "Return": get_scalar(pf.total_return()),
-                    "Win Rate": get_scalar(pf.trades.win_rate()),
-                    "Profit Factor": get_scalar(pf.trades.profit_factor()),
-                    "Trades": get_scalar(pf.trades.count())
-                })
-                
-                progress_bar.progress((i + 1) / len(param_combinations))
-
-            progress_bar.empty()
-            status_text.empty()
-
-            if results:
-                df = pd.DataFrame(results)
-                df['Profit Factor'] = df['Profit Factor'].replace([np.inf, -np.inf], np.nan)
-                df.sort_values(target_metric, ascending=False, na_position='last', inplace=True)
-                df.reset_index(drop=True, inplace=True)
-                
                 st.header("🏆 Kết quả Tốt nhất")
-                best_df = df.dropna(subset=[target_metric])
-                if not best_df.empty:
-                    best = best_df.iloc[0]
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Cặp MA Tốt nhất", f"{int(best.Fast)} / {int(best.Slow)}")
-                    col2.metric(f"Chỉ số {target_metric}", f"{best[target_metric]:.2f}")
-                    col3.metric("Tổng Lợi nhuận", f"{best['Return']:.2%}")
-                    col4.metric("Tổng số Giao dịch", f"{best['Trades']:.0f}")
+                best_params_col, best_value_col = perf.idxmax(), perf.max()
+                best_stats = pf[best_params_col].stats()
+                
+                # SỬA LỖI: Lấy giá trị Total Return một cách an toàn
+                total_return_val = best_stats.get('Total Return [%]', best_stats.get('Total Return', 0))
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Cặp MA Tốt nhất", f"{int(best_params_col[0])} / {int(best_params_col[1])}")
+                col2.metric(f"Chỉ số {target_metric}", f"{best_value_col:.2f}")
+                col3.metric("Tổng Lợi nhuận", f"{total_return_val:.2f}%")
+                col4.metric("Tổng số Giao dịch", f"{best_stats.get('Total Trades', 0):.0f}")
 
                 st.subheader("📈 Trực quan hóa Heatmap")
-                try:
-                    heatmap_df = df.dropna(subset=[target_metric]).pivot(index='Slow', columns='Fast', values=target_metric)
-                    if not heatmap_df.empty:
-                        fig = go.Figure(data=go.Heatmap(
-                            z=heatmap_df.values, x=heatmap_df.columns, y=heatmap_df.index, colorscale='Viridis'
-                        ))
-                        fig.update_layout(title=f'Heatmap của {target_metric}', template="plotly_dark")
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning("Không có đủ dữ liệu để vẽ heatmap.")
-                except Exception as e:
-                    st.warning(f"Không thể vẽ heatmap: {e}")
+                fig = pf.total_return().vbt.heatmap(x_level='fast_window', y_level='slow_window', title=f"Heatmap của Lợi nhuận Tổng (%)")
+                st.plotly_chart(fig, use_container_width=True)
 
-                with st.expander("🔬 Xem Bảng kết quả chi tiết"):
-                    st.dataframe(df.style.format({
-                        "Sharpe": "{:.2f}", "Return": "{:.2%}",
-                        "Win Rate": "{:.2%}", "Profit Factor": "{:.2f}"
-                    }))
-            else:
-                st.warning("Không có kết quả nào được tạo ra.")
+                with st.expander("🔬 Xem Bảng kết quả chi tiết của tất cả các kịch bản"):
+                    # SỬA LỖI: Hiển thị toàn bộ stats có sẵn, không chỉ định tên cụ thể
+                    all_stats_df = pf.stats()
+                    st.dataframe(all_stats_df.astype(str))
+        else:
+            st.warning("Không có dữ liệu để chạy tối ưu hóa.")
 else:
     st.info("👈 Vui lòng cấu hình các tham số và nhấn 'Chạy Tối ưu hóa' ở thanh bên trái.")
