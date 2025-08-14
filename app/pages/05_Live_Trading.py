@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import traceback
 
 # --- Cấu hình trang ---
-st.set_page_config(page_title="Live Trading Station", page_icon="🛰️", layout="wide")
+st.set_page_config(page_title="Live Trading with TanPham", page_icon="🛰️", layout="wide")
 
 # --- Tùy chỉnh CSS ---
 st.markdown("""
@@ -34,7 +34,7 @@ class AlpacaTrader:
             self.account = self.api.get_account()
             self.connected = True
         except Exception as e:
-            st.error(f"Lỗi kết nối Alpaca: {e}")
+            st.error(f"Error connecting to Alpaca: {e}")
 
     def get_account_info(self): return self.api.get_account()
     def get_positions(self): return self.api.get_all_positions()
@@ -55,10 +55,10 @@ class AlpacaTrader:
                 time_in_force=TimeInForce.GTC
             )
             order = self.api.submit_order(order_data=market_order_data)
-            st.success(f"Đã gửi yêu cầu lệnh {side.upper()} {qty} đơn vị {symbol} thành công!")
+            st.success(f"Successfully submitted {side.upper()} order for {qty} units of {symbol}!")
             return order
         except Exception as e:
-            st.error(f"Lỗi khi đặt lệnh: {e}")
+            st.error(f"Error placing order: {e}")
             return None
 
 # --- Các hàm khác (Giữ nguyên) ---
@@ -96,14 +96,14 @@ if 'trader' not in st.session_state:
 
 # Sidebar luôn hiển thị
 with st.sidebar:
-    st.header("🔌 Kết nối Sàn Giao dịch")
-    account_type = st.radio("Chọn loại tài khoản:", ["Paper Trading", "Live Trading"])
+    st.header("🔌 Connect to Trading Platform")
+    account_type = st.radio("Select Account Type:", ["Paper Trading", "Live Trading"])
     api_key = st.text_input("API Key", type="password", key="api_key_input")
     api_secret = st.text_input("API Secret", type="password", key="api_secret_input")
-    
-    if st.button("Kết nối", use_container_width=True):
+
+    if st.button("Connect", use_container_width=True):
         if api_key and api_secret:
-            with st.spinner("Đang kết nối..."):
+            with st.spinner("Connecting..."):
                 st.session_state.trader = AlpacaTrader(api_key.strip(), api_secret.strip(), paper=(account_type == 'Paper Trading'))
             # Không cần rerun() ở đây, Streamlit sẽ tự động chạy lại sau khi button click
         else:
@@ -111,51 +111,51 @@ with st.sidebar:
 
     # Hiển thị trạng thái kết nối
     if st.session_state.trader and st.session_state.trader.connected:
-        st.success(f"✅ Đã kết nối với tài khoản {account_type}!")
+        st.success(f"✅ Connected to {account_type} account!")
     else:
-        st.info("Nhập API Key và Secret của Alpaca để bắt đầu.")
+        st.info("Enter your Alpaca API Key and Secret to get started.")
 
-# SỬA LỖI: Cấu trúc lại phần hiển thị chính
+# FIX: Restructure the main display section
 if st.session_state.trader and st.session_state.trader.connected:
     trader = st.session_state.trader
-    
-    # Tạo các tab
-    tab_titles = ["📊 Tổng quan", "📈 Vị thế", "🛠️ Giao dịch Thủ công", "🤖 Giao dịch Tự động"]
+
+    # Create tabs
+    tab_titles = ["📊 Overview", "📈 Positions", "🛠️ Manual Trading", "🤖 Automated Trading"]
     tab1, tab2, tab3, tab4 = st.tabs(tab_titles)
-    
-    # Tab 1: Tổng quan
+
+    # Tab 1: Overview
     with tab1:
-        st.subheader("Tổng quan tài khoản")
+        st.subheader("Account Overview")
         try:
             account = trader.get_account_info()
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Giá trị danh mục", f"${float(account.portfolio_value):,.2f}")
-            col2.metric("Sức mua", f"${float(account.buying_power):,.2f}")
-            col3.metric("Tiền mặt", f"${float(account.cash):,.2f}")
-            col4.metric("Trạng thái", account.status.value.upper())
+            col1.metric("Portfolio Value", f"${float(account.portfolio_value):,.2f}")
+            col2.metric("Buying Power", f"${float(account.buying_power):,.2f}")
+            col3.metric("Cash", f"${float(account.cash):,.2f}")
+            col4.metric("Status", account.status.value.upper())
             # ... (Phần biểu đồ giữ nguyên)
         except Exception as e:
-            st.error(f"Không thể tải thông tin tài khoản: {e}")
+            st.error(f"Cannot load account information: {e}")
 
-    # Tab 2: Vị thế
+    # Tab 2: Positions
     with tab2:
-        st.subheader("Các vị thế hiện tại")
-        if st.button("Làm mới Vị thế", key="refresh_positions"):
+        st.subheader("Current Positions")
+        if st.button("Refresh Positions", key="refresh_positions"):
             pass # Streamlit sẽ tự rerun và lấy dữ liệu mới
         try:
             positions = trader.get_positions()
             if positions:
-                positions_data = [{"Symbol": p.symbol, "Qty": float(p.qty), "Giá vào lệnh TB": f"{float(p.avg_entry_price):,.2f}", "Giá hiện tại": f"{float(p.current_price):,.2f}", "Lời/Lỗ ($)": f"{float(p.unrealized_pl):,.2f}"} for p in positions]
+                positions_data = [{"Symbol": p.symbol, "Qty": float(p.qty), "Average Entry Price": f"{float(p.avg_entry_price):,.2f}", "Current Price": f"{float(p.current_price):,.2f}", "Unrealized P/L ($)": f"{float(p.unrealized_pl):,.2f}"} for p in positions]
                 st.dataframe(pd.DataFrame(positions_data), use_container_width=True)
             else:
-                st.info("Không có vị thế nào đang mở.")
+                st.info("No open positions.")
         except Exception as e:
-            st.error(f"Không thể tải danh sách vị thế: {e}")
-            
-    # Tab 3: Giao dịch Thủ công
+            st.error(f"Cannot load positions list: {e}")
+
+    # Tab 3: Manual Trading
     with tab3:
-        st.subheader("Đặt lệnh Thị trường (Market Order)")
-        
+        st.subheader("Market Order")
+
         signal_to_execute = st.session_state.get('trade_signal_to_execute', None)
         default_asset_index = 0
         default_sym = "AAPL"
@@ -165,16 +165,16 @@ if st.session_state.trader and st.session_state.trader.connected:
             default_asset_index = asset_map.get(signal_to_execute['asset_class'], 0)
             default_sym = signal_to_execute['symbol']
 
-        manual_asset_type = st.radio("Loại tài sản:", ["Stocks", "Crypto", "Forex"], index=default_asset_index, horizontal=True)
-        
+        manual_asset_type = st.radio("Asset Type:", ["Stocks", "Crypto", "Forex"], index=default_asset_index, horizontal=True)
+
         if not signal_to_execute:
             if manual_asset_type == "Crypto": default_sym = "BTC/USDT"
             elif manual_asset_type == "Forex": default_sym = "EUR/USD"
             else: default_sym = "AAPL"
 
-        manual_symbol = st.text_input("Mã giao dịch:", value=default_sym, key="manual_symbol_input").upper()
-        manual_qty = st.number_input("Số lượng:", min_value=0.00001, value=1.0, step=1.0, format="%.5f")
-        
+        manual_symbol = st.text_input("Symbol:", value=default_sym, key="manual_symbol_input").upper()
+        manual_qty = st.number_input("Quantity:", min_value=0.00001, value=1.0, step=1.0, format="%.5f")
+
         btn_col1, btn_col2 = st.columns(2)
         
         buy_type = "primary" if (signal_to_execute and signal_to_execute['side'] == 'MUA') else "secondary"
@@ -187,12 +187,12 @@ if st.session_state.trader and st.session_state.trader.connected:
 
         if signal_to_execute:
             st.session_state['trade_signal_to_execute'] = None
-            st.success(f"Đã điền sẵn thông tin. Vui lòng xác nhận lệnh.")
-    
-    # Tab 4: Giao dịch Tự động
+            st.success(f"Trade information has been pre-filled. Please confirm the order.")
+
+    # Tab 4: Automated Trading
     with tab4:
-        # ... (code tab Giao dịch Tự động giữ nguyên)
+        # ... (code tab Automated Trading giữ nguyên)
         pass
 else:
     # Thông báo này chỉ hiển thị khi chưa kết nối
-    st.info("👈 Vui lòng kết nối với Sàn Giao dịch Alpaca ở thanh bên trái để bắt đầu.")
+    st.info("👈 Please connect to the Alpaca Trading API on the left sidebar to get started.")

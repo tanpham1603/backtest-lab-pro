@@ -27,7 +27,7 @@ st.markdown("""
 
 
 def create_strategy_chart(data, indicators_dict, signals=None):
-    """Tạo biểu đồ cho strategy builder"""
+    """Create strategy builder chart"""
     fig = make_subplots(
         rows=4, cols=1,
         shared_xaxes=True,
@@ -94,24 +94,24 @@ def create_strategy_chart(data, indicators_dict, signals=None):
 
 def main():
     st.title("🔧 Strategy Builder")
-    st.markdown("### Xây dựng và trực quan hóa chiến lược giao dịch của bạn.")
+    st.markdown("### Build and visualize your trading strategy.")
     
     with st.sidebar:
         st.image("https://streamlit.io/images/brand/streamlit-logo-secondary-colormark-darktext.png", width=200)
-        st.header("🎛️ Cấu hình chiến lược")
-        symbol = st.selectbox("📈 Chọn mã:", ["AAPL", "MSFT", "GOOGL", "TSLA"])
-        period = st.selectbox("📅 Thời gian:", ["6mo", "1y", "2y"], index=1)
-    
+        st.header("🎛️ Strategy Configuration")
+        symbol = st.selectbox("📈 Select Symbol:", ["AAPL", "MSFT", "GOOGL", "TSLA"])
+        period = st.selectbox("📅 Time Period:", ["6mo", "1y", "2y"], index=1)
+
     @st.cache_data
     def load_data(symbol, period):
         try:
             data = yf.download(symbol, period=period, progress=False, auto_adjust=True)
             if data.empty:
-                st.error(f"Không có dữ liệu cho mã {symbol}.")
+                st.error(f"Dont have data for {symbol}.")
                 return None
             return data
         except Exception as e:
-            st.error(f"Lỗi khi tải dữ liệu từ yfinance: {e}")
+            st.error(f"Error loading data from yfinance: {e}")
             return None
             
     data = load_data(symbol, period)
@@ -123,14 +123,14 @@ def main():
 
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if not all(col in data.columns for col in required_cols):
-        st.error(f"Dữ liệu tải về thiếu các cột cần thiết. Các cột hiện có: {list(data.columns)}")
+        st.error(f"Downloaded data is missing required columns. Current columns: {list(data.columns)}")
         st.stop()
     
     col1, col2 = st.columns([1, 3])
     
     with col1:
-        st.subheader("📊 Chỉ báo")
-        
+        st.subheader("📊 Indicators")
+
         with st.expander("📈 Trend", expanded=True):
             sma_periods = st.multiselect("SMA Periods", [10, 20, 50, 100, 200], default=[20, 50])
             ema_periods = st.multiselect("EMA Periods", [10, 20, 50, 100, 200], default=[])
@@ -144,7 +144,7 @@ def main():
             macd_enabled = st.checkbox("MACD", value=True)
             macd_fast, macd_slow, macd_signal = (st.slider("MACD Fast", 5, 20, 12), st.slider("MACD Slow", 20, 40, 26), st.slider("MACD Signal", 5, 15, 9)) if macd_enabled else (None, None, None)
         
-        st.subheader("🧠 Logic Chiến lược")
+        st.subheader("🧠 Strategy logic")
         
         entry_conditions = []
         if rsi_enabled:
@@ -159,8 +159,8 @@ def main():
             st.info("**Entry:** " + " AND ".join(entry_conditions))
     
     with col2:
-        st.subheader("📈 Trực quan hóa")
-        
+        st.subheader("📈 Visualization")
+
         indicators_dict = {}
         
         strategy_list = []

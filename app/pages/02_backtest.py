@@ -10,7 +10,7 @@ import pandas_ta as ta
 import numpy as np
 
 # --- CẤU HÌNH TRANG ---
-st.set_page_config(page_title="Backtest Pro", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Backtest with TanPham", page_icon="📈", layout="wide")
 
 # --- TÙY CHỈNH CSS ---
 st.markdown("""
@@ -65,11 +65,11 @@ def load_price_data(asset_type, sym, timeframe, start_date, end_date):
         if data.empty: return None
         return data
     except Exception as e:
-        st.error(f"Lỗi khi tải dữ liệu: {e}")
+        st.error(f"Error loading data: {e}")
         return None
 
 # --- GIAO DIỆN CHÍNH ---
-st.title("📈 Dashboard Backtest Chuyên nghiệp")
+st.title("📈 Dashboard Backtest with TanPham")
 
 run_ml_backtest = st.session_state.get('run_ml_backtest', False)
 
@@ -77,7 +77,7 @@ run_ml_backtest = st.session_state.get('run_ml_backtest', False)
 # CHẾ ĐỘ 1: KIỂM CHỨNG CHIẾN LƯỢC ML
 # ==============================================================================
 if run_ml_backtest:
-    st.success("**Chế độ:** Kiểm chứng Hiệu suất Chiến lược ML.")
+    st.success("**Function:** Backtest ML signals nowww .")
     info = st.session_state.get('ml_signal_info')
     
     if info and info.get('model'):
@@ -90,17 +90,17 @@ if run_ml_backtest:
         end_date_bt = info['end_date']
         
         with st.sidebar:
-            st.header("Thông số từ Tín hiệu ML")
-            st.info(f"Tài sản: **{asset}**\nMã: **{symbol}**\nKhung TG: **{tf}**")
-            st.write(f"**Thời gian kiểm chứng:**")
-            st.write(f"{start_date_bt.strftime('%Y-%m-%d')} đến {end_date_bt.strftime('%Y-%m-%d')}")
+            st.header("Parameters for Backtest")
+            st.info(f"Asset: **{asset}**\nSymbol: **{symbol}**\nTimeframe: **{tf}**")
+            st.write(f"**Backtest Period:**")
+            st.write(f"{start_date_bt.strftime('%Y-%m-%d')} to {end_date_bt.strftime('%Y-%m-%d')}")
 
-            if st.button("Quay lại chế độ MA-Cross"):
+            if st.button("Back to MA-Cross mode"):
                 st.session_state['run_ml_backtest'] = False
                 st.rerun()
 
-        with st.spinner("Đang tải dữ liệu và kiểm chứng mô hình ML..."):
-            # Sử dụng đúng ngày tháng đã lưu để tải dữ liệu
+        with st.spinner("Loading data and validating ML model..."):
+            # Use the saved dates to load data
             full_data = load_price_data(asset, symbol, tf, start_date_bt, end_date_bt)
 
             if full_data is not None and not full_data.empty:
@@ -124,36 +124,36 @@ if run_ml_backtest:
                     pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, fees=0.001, freq=tf.upper().replace('M','T'))
                     stats = pf.stats()
                     
-                    st.header("📊 Kết quả Backtest Chiến lược ML")
-                    st.info(f"**Khoảng thời gian backtest:** {stats['Start'].strftime('%Y-%m-%d')} đến {stats['End'].strftime('%Y-%m-%d')}")
-                    st.subheader("Các chỉ số Hiệu suất")
+                    st.header("📊 Result ML signals?")
+                    st.info(f"**Backtesting periods:** {stats['Start'].strftime('%Y-%m-%d')} to {stats['End'].strftime('%Y-%m-%d')}")
+                    st.subheader("Performance Metrics")
                     col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Tổng Lợi nhuận [%]", f"{stats.get('Total Return [%]', 0):.2f}")
-                    col2.metric("Tỷ lệ Thắng [%]", f"{stats.get('Win Rate [%]', 0):.2f}")
-                    col3.metric("Tỷ lệ Sharpe", f"{stats.get('Sharpe Ratio', 0):.2f}")
-                    col4.metric("Sụt giảm Tối đa [%]", f"{stats.get('Max Drawdown [%]', 0):.2f}")
+                    col1.metric("Total Return [%]", f"{stats.get('Total Return [%]', 0):.2f}")
+                    col2.metric("Win Rate [%]", f"{stats.get('Win Rate [%]', 0):.2f}")
+                    col3.metric("Sharpe Ratio", f"{stats.get('Sharpe Ratio', 0):.2f}")
+                    col4.metric("Max Drawdown [%]", f"{stats.get('Max Drawdown [%]', 0):.2f}")
                     st.divider()
-                    st.subheader("Phân tích Chi tiết")
+                    st.subheader("Detailed Analysis")
                     plot_col, stats_col = st.columns([2, 1])
                     with plot_col:
-                        st.markdown("##### Biểu đồ Vốn theo Thời gian")
+                        st.markdown("##### Equity Curve")
                         fig = pf.plot()
                         st.plotly_chart(fig, use_container_width=True)
                     with stats_col:
-                        st.markdown("##### Thống kê Chi tiết")
+                        st.markdown("##### Detailed Statistics")
                         stats_display = stats.astype(str)
                         st.dataframe(stats_display)
                 else:
-                    st.error("Dữ liệu không đủ để tạo các đặc trưng cần thiết cho backtest.")
+                    st.error("Data is insufficient.")
             else:
-                st.warning("Không tải được dữ liệu cho khoảng thời gian đã chọn.")
+                st.warning("Cannot load data for the selected period.")
     else:
-        st.error("Không tìm thấy mô hình ML. Vui lòng quay lại trang 'Tín hiệu ML' và huấn luyện lại.")
-        if st.button("Quay lại chế độ MA-Cross"):
+        st.error("ML model not found. Please return to the 'ML Signals' page and retrain.")
+        if st.button("Back to MA-Cross mode"):
             st.session_state['run_ml_backtest'] = False
             st.rerun()
             
-    if st.button("Kết thúc kiểm chứng ML"):
+    if st.button("End of test"):
         st.session_state['run_ml_backtest'] = False
         st.rerun()
 
@@ -162,37 +162,37 @@ if run_ml_backtest:
 # ==============================================================================
 else:
     with st.sidebar:
-        st.header("🎛️ Cấu hình Backtest MA-Cross")
-        asset = st.selectbox("Loại tài sản:", ["Crypto", "Forex", "Stocks"])
+        st.header("🎛️ Backtest MA-Cross Configuration")
+        asset = st.selectbox("Asset Type:", ["Crypto", "Forex", "Stocks"])
         if asset == "Crypto":
-            symbol = st.text_input("Cặp giao dịch (CCXT):", "BTC/USDT")
-            tf = st.selectbox("Khung thời gian:", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=4)
+            symbol = st.text_input("Pairs (CCXT):", "BTC/USDT")
+            tf = st.selectbox("Timeframe:", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=4)
         else:
             default_symbol = "AAPL" if asset == "Stocks" else "EURUSD=X"
-            symbol = st.text_input("Mã (Yahoo Finance):", default_symbol)
-            tf = st.selectbox("Khung thời gian:", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=6)
-        st.subheader("Khoảng thời gian Backtest")
-        end_date = st.date_input("Ngày kết thúc", value=datetime.now())
-        start_date = st.date_input("Ngày bắt đầu", value=end_date - timedelta(days=365))
-        st.subheader("Thông số Chiến lược")
-        fast_ma = st.slider("MA Nhanh", 5, 100, 20)
-        slow_ma = st.slider("MA Chậm", 20, 250, 50)
-        st.subheader("Quản lý Rủi ro")
-        initial_cash = st.number_input("Vốn ban đầu", min_value=100, value=10000, step=1000)
+            symbol = st.text_input("Symbol (Yahoo Finance):", default_symbol)
+            tf = st.selectbox("Timeframe:", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=6)
+        st.subheader("Backtest Period")
+        end_date = st.date_input("End Date", value=datetime.now())
+        start_date = st.date_input("Start Date", value=end_date - timedelta(days=365))
+        st.subheader("Strategy Parameters")
+        fast_ma = st.slider("Fast MA", 5, 100, 20)
+        slow_ma = st.slider("Slow MA", 20, 250, 50)
+        st.subheader("Risk Management")
+        initial_cash = st.number_input("Initial Capital", min_value=100, value=10000, step=1000)
         sl_pct = st.slider("Stop Loss (%)", 0.5, 20.0, 2.0, 0.5)
         tp_pct = st.slider("Take Profit (%)", 0.5, 50.0, 4.0, 0.5)
-        run_button = st.button("🚀 Chạy Backtest", type="primary", use_container_width=True)
+        run_button = st.button("🚀 Run Backtest", type="primary", use_container_width=True)
 
     if not run_button:
-        st.info("👈 Vui lòng cấu hình các tham số và nhấn 'Chạy Backtest' để xem kết quả.")
+        st.info("👈 Please configure the parameters and click 'Run Backtest' to see the results.")
 
     if run_button:
         if start_date >= end_date:
-            st.error("Lỗi: Ngày bắt đầu phải trước ngày kết thúc.")
+            st.error("Error: Start date must be before end date.")
         elif fast_ma >= slow_ma:
-            st.error("Lỗi: MA Nhanh phải nhỏ hơn MA Chậm.")
+            st.error("Error: Fast MA must be less than Slow MA.")
         else:
-            with st.spinner("⏳ Đang tải dữ liệu và chạy backtest..."):
+            with st.spinner("⏳ Loading data and running backtest..."):
                 warmup_candles = slow_ma
                 time_delta_map = {'1m': timedelta(minutes=1), '5m': timedelta(minutes=5), '15m': timedelta(minutes=15), '30m': timedelta(minutes=30), '1h': timedelta(hours=1), '4h': timedelta(hours=4), '1d': timedelta(days=1), '1w': timedelta(weeks=1)}
                 candle_duration = time_delta_map.get(tf, timedelta(days=1))
@@ -213,7 +213,7 @@ else:
                     backtest_exits = exits.loc[start_date:end_date]
                     
                     if backtest_price.empty:
-                        st.error("Không có dữ liệu trong khoảng thời gian bạn chọn.")
+                        st.error("No data available for the selected period.")
                     else:
                         vbt_freq = tf.upper().replace('M', 'T')
                         if vbt_freq == '1W': vbt_freq = 'W-MON'
@@ -223,24 +223,24 @@ else:
                             tp_stop=tp_pct / 100, fees=0.001
                         )
                         stats = portfolio.stats()
-                        st.header("📊 Kết quả Tổng quan")
-                        st.info(f"**Khoảng thời gian backtest:** {stats['Start'].strftime('%Y-%m-%d')} đến {stats['End'].strftime('%Y-%m-%d')}")
-                        st.subheader("Các chỉ số Hiệu suất")
+                        st.header("📊 Overall Results")
+                        st.info(f"**Backtest Period:** {stats['Start'].strftime('%Y-%m-%d')} to {stats['End'].strftime('%Y-%m-%d')}")
+                        st.subheader("Performance Metrics")
                         col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Tổng Lợi nhuận [%]", f"{stats.get('Total Return [%]', 0):.2f}")
-                        col2.metric("Tỷ lệ Thắng [%]", f"{stats.get('Win Rate [%]', 0):.2f}")
-                        col3.metric("Tỷ lệ Sharpe", f"{stats.get('Sharpe Ratio', 0):.2f}")
-                        col4.metric("Sụt giảm Tối đa [%]", f"{stats.get('Max Drawdown [%]', 0):.2f}")
+                        col1.metric("Total Return [%]", f"{stats.get('Total Return [%]', 0):.2f}")
+                        col2.metric("Win Rate [%]", f"{stats.get('Win Rate [%]', 0):.2f}")
+                        col3.metric("Sharpe Ratio", f"{stats.get('Sharpe Ratio', 0):.2f}")
+                        col4.metric("Max Drawdown [%]", f"{stats.get('Max Drawdown [%]', 0):.2f}")
                         st.divider()
-                        st.subheader("Phân tích Chi tiết")
+                        st.subheader("Detailed Analysis")
                         plot_col, stats_col = st.columns([2, 1])
                         with plot_col:
-                            st.markdown("##### Biểu đồ Vốn theo Thời gian")
+                            st.markdown("##### Equity Curve")
                             fig = portfolio.plot()
                             st.plotly_chart(fig, use_container_width=True)
                         with stats_col:
-                            st.markdown("##### Thống kê Chi tiết")
+                            st.markdown("##### Detailed Statistics")
                             stats_display = stats.astype(str)
                             st.dataframe(stats_display)
                 else:
-                    st.warning("Không có dữ liệu để chạy backtest.")
+                    st.warning("No data available to run backtest.")

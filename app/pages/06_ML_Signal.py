@@ -12,9 +12,9 @@ import plotly.graph_objects as go
 import plotly.figure_factory as ff
 import numpy as np
 
-st.set_page_config(page_title="ML Signal Pro", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="ML Signal by TanPham", page_icon="🤖", layout="wide")
 st.markdown("""<style>.main { background-color: #0E1117; } .stMetric { background-color: #161B22; border: 1px solid #30363D; padding: 15px; border-radius: 10px; text-align: center; }</style>""", unsafe_allow_html=True)
-st.title("🤖 Tín hiệu Giao dịch từ Machine Learning")
+st.title("🤖 Trading signals from Machine Learning")
 
 @st.cache_data(ttl=300)
 def load_data_for_signal(asset, sym, timeframe, start, end):
@@ -37,11 +37,11 @@ def load_data_for_signal(asset, sym, timeframe, start, end):
         if data.empty: return None
         return data
     except Exception as e:
-        st.error(f"Lỗi khi tải dữ liệu cho {sym}: {e}"); return None
+        st.error(f"Error loading data for {sym}: {e}"); return None
 
 @st.cache_resource
 def train_and_evaluate_model(data):
-    with st.spinner("Đang chuẩn bị dữ liệu và huấn luyện mô hình nâng cao..."):
+    with st.spinner("Preparing data and training advanced model..."):
         df = data.copy()
         df.ta.rsi(length=14, append=True)
         df.ta.sma(length=50, append=True)
@@ -74,17 +74,17 @@ def get_ml_signal(data, model_results):
     latest_features = df[features].dropna().iloc[-1:]
     if latest_features.empty: return "GIỮ", "Không đủ dữ liệu mới", None
     prediction = model.predict(latest_features)[0]
-    signal = "MUA" if prediction == 1 else "BÁN"
-    return signal, f"Tín hiệu dự đoán: {signal}", latest_features
+    signal = "BUY" if prediction == 1 else "SELL"
+    return signal, f"Expected: {signal}", latest_features
 
 with st.sidebar:
-    st.header("⚙️ Cấu hình Tín hiệu")
-    asset_class = st.radio("Loại tài sản:", ["Crypto", "Forex", "Stocks"])
-    tf = st.selectbox("Khung thời gian:", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=6)
-    if asset_class == "Crypto": symbol = st.text_input("Mã (CCXT):", "BTC/USDT")
-    else: symbol = st.text_input("Mã (Yahoo):", "AAPL" if asset_class == "Stocks" else "EURUSD=X")
-    
-    st.subheader("Khoảng thời gian")
+    st.header("⚙️ Signal Configuration")
+    asset_class = st.radio("Asset Class:", ["Crypto", "Forex", "Stocks"])
+    tf = st.selectbox("Timeframe:", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=6)
+    if asset_class == "Crypto": symbol = st.text_input("Symbol (CCXT):", "BTC/USDT")
+    else: symbol = st.text_input("Symbol (Yahoo):", "AAPL" if asset_class == "Stocks" else "EURUSD=X")
+
+    st.subheader("Time Period")
     yf_timeframe_limits = {"1m": 7, "5m": 60, "15m": 60, "30m": 60, "1h": 730}
     end_date = datetime.now().date()
     start_date_default = end_date - timedelta(days=730)
@@ -92,58 +92,58 @@ with st.sidebar:
     if asset_class != 'Crypto' and tf in yf_timeframe_limits:
         limit = yf_timeframe_limits[tf]
         start_date_default = end_date - timedelta(days=limit - 1)
-        info_message = f"Gợi ý: Khung {tf} giới hạn trong {limit} ngày."
-    end_date_input = st.date_input("Ngày kết thúc", value=end_date)
-    start_date_input = st.date_input("Ngày bắt đầu", value=start_date_default)
+        info_message = f"Suggestion: {tf} range limited to {limit} days."
+    end_date_input = st.date_input("End Date", value=end_date)
+    start_date_input = st.date_input("Start Date", value=start_date_default)
     if info_message: st.caption(info_message)
 
 if start_date_input >= end_date_input:
-    st.error("Lỗi: Ngày bắt đầu phải trước ngày kết thúc.")
+    st.error("Error: Start date must be before end date.")
 else:
     data = load_data_for_signal(asset_class, symbol, tf, start_date_input, end_date_input)
     if data is not None and not data.empty:
         model_results = train_and_evaluate_model(data)
         if model_results:
-            st.success("Huấn luyện và đánh giá mô hình thành công!")
+            st.success("Training and evaluating model successful!")
             signal, message, latest_features = get_ml_signal(data, model_results)
-            
-            st.subheader(f"Kết quả cho {symbol} - Khung {tf}")
+
+            st.subheader(f"Results for {symbol} - Timeframe {tf}")
             col1, col2 = st.columns([1, 2])
             with col1:
-                if signal == "MUA": st.metric("Tín hiệu 📈", "MUA")
-                else: st.metric("Tín hiệu 📉", "BÁN")
+                if signal == "BUY": st.metric("Signal 📈", "BUY")
+                else: st.metric("Signal 📉", "SELL")
                 st.info(message)
-                st.caption("Cơ sở dữ liệu cho tín hiệu:")
+                st.caption("Data base for signals:")
                 st.dataframe(latest_features)
             with col2:
-                st.caption("Biểu đồ 60 nến gần nhất")
+                st.caption("Last 60 candles chart")
                 fig = go.Figure(data=[go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'])])
                 fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, height=280, margin=dict(l=20, r=20, t=20, b=20))
                 st.plotly_chart(fig.update_xaxes(range=[data.index[-60], data.index[-1]]), use_container_width=True)
 
-            st.subheader("Hành động Tiếp theo")
+            st.subheader("Next Steps")
             act_col1, act_col2 = st.columns(2)
-            if act_col1.button("Kiểm chứng Lịch sử (Backtest) 🧪", use_container_width=True):
+            if act_col1.button("Backtest 🧪", use_container_width=True):
                 st.session_state['run_ml_backtest'] = True
                 st.session_state['ml_signal_info'] = {"model": model_results['model'], "symbol": symbol, "asset_class": asset_class, "timeframe": tf, "start_date": start_date_input, "end_date": end_date_input}
-                st.success("Đã lưu! Hãy chuyển sang trang 'Backtest' để kiểm chứng.")
-            if act_col2.button("Thực hiện Giao dịch 🛰️", use_container_width=True):
+                st.success("Saved! Please go to the 'Backtest' page to verify.")
+            if act_col2.button("Execute Trade 🛰️", use_container_width=True):
                 st.session_state['trade_signal_to_execute'] = {'symbol': symbol, 'side': signal, 'asset_class': asset_class}
-                st.success("Đã lưu! Hãy chuyển sang trang 'Live Trading' để thực hiện.")
-            
+                st.success("Saved! Please go to the 'Live Trading' page to execute.")
+
             st.divider()
-            st.subheader("Kết quả Huấn luyện & Đánh giá Mô hình")
+            st.subheader("Training & Evaluation Results")
             acc_col, fi_col = st.columns(2)
             with acc_col:
-                st.metric("Độ chính xác (trên dữ liệu kiểm tra)", f"{model_results['accuracy'] * 100:.2f}%")
-                st.write("**Ma trận Nhầm lẫn**")
-                cm = model_results['confusion_matrix']; x = ['Dự đoán BÁN', 'Dự đoán MUA']; y = ['Thực tế BÁN', 'Thực tế MUA']
+                st.metric("Accuracy (on test data)", f"{model_results['accuracy'] * 100:.2f}%")
+                st.write("**Confusion Matrix**")
+                cm = model_results['confusion_matrix']; x = ['Predicted SELL', 'Predicted BUY']; y = ['Actual SELL', 'Actual BUY']
                 fig_cm = ff.create_annotated_heatmap(cm, x=x, y=y, colorscale='Blues', showscale=False)
                 fig_cm.update_layout(template="plotly_dark", height=250, margin=dict(l=20, r=20, t=40, b=20))
                 st.plotly_chart(fig_cm, use_container_width=True)
             with fi_col:
-                st.write("**Độ quan trọng của Tín hiệu**")
+                st.write("**Feature Importance**")
                 fi_df = pd.DataFrame({'Feature': model_results['feature_names'], 'Importance': model_results['feature_importances']}).sort_values(by='Importance', ascending=False)
                 st.dataframe(fi_df)
     else:
-        st.warning("Vui lòng cấu hình lại, không thể tải được dữ liệu.")
+        st.warning("Please reconfigure, unable to load data.")

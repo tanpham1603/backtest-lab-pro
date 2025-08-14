@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 
 # --- Cấu hình trang (Nên đặt ở đầu) ---
 st.set_page_config(
-    page_title="🚀 Backtest Lab Pro",
+    page_title="🚀 Backtest Lab Pro with TanPham",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -23,35 +23,35 @@ st.set_page_config(
 
 # --- Sidebar ---
 # Các thành phần trong sidebar chính sẽ hiển thị trên tất cả các trang
-st.sidebar.title("🚀 Backtest Lab Pro")
+st.sidebar.title("🚀 Backtest Lab Pro with TanPham")
 st.sidebar.markdown("---")
 # Hướng dẫn điều hướng
-st.sidebar.success("Chọn một chức năng ở trên ⬆️")
+st.sidebar.success("Choose a function from the sidebar ⬆️")
 
 # --- Nội dung chính của trang chủ ---
 
-st.title("Chào mừng đến với Backtest Lab Pro 🚀")
-st.markdown("### Nền tảng toàn diện cho việc xây dựng và kiểm thử chiến lược giao dịch của bạn.")
+st.title("Welcome to Backtest Lab Pro 🚀")
+st.markdown("### Comprehensive platform for building and testing your trading strategies.")
 st.markdown("---")
 
 # --- Kiểm tra trạng thái kết nối API ---
-st.subheader("Trạng thái kết nối")
+st.subheader("Connection Status")
 try:
     # Kiểm tra xem các key cần thiết có trong secrets không
     if "ALPACA_API_KEY" in st.secrets and st.secrets["ALPACA_API_KEY"] and \
        "ALPACA_API_SECRET" in st.secrets and st.secrets["ALPACA_API_SECRET"]:
-        st.success("✅ Đã tìm thấy thông tin API trong `secrets.toml`. Các trang chức năng đã sẵn sàng.")
+        st.success("✅ Found API information in `secrets.toml`. Function pages are ready.")
     else:
-        st.warning("⚠️ Không tìm thấy thông tin API. Vui lòng kiểm tra lại tệp `.streamlit/secrets.toml`.")
+        st.warning("⚠️ API information not found. Please check the `.streamlit/secrets.toml` file.")
         st.code("""
-# Thêm vào file .streamlit/secrets.toml
+# Add to .streamlit/secrets.toml
 ALPACA_API_KEY = "YOUR_API_KEY_HERE"
 ALPACA_API_SECRET = "YOUR_SECRET_KEY_HERE"
         """, language="toml")
 except Exception:
-    st.error("❌ Chưa có tệp `secrets.toml`. Vui lòng tạo tệp trong thư mục `.streamlit`.")
+    st.error("❌ `secrets.toml` file not found. Please create the file in the `.streamlit` directory.")
     st.code("""
-# Tạo tệp .streamlit/secrets.toml và thêm vào nội dung sau:
+# Create the .streamlit/secrets.toml file and add the following content:
 ALPACA_API_KEY = "YOUR_API_KEY_HERE"
 ALPACA_API_SECRET = "YOUR_SECRET_KEY_HERE"
     """, language="toml")
@@ -60,32 +60,32 @@ st.markdown("---")
 
 
 # Giới thiệu các tính năng chính
-st.subheader("Các tính năng chính")
+st.subheader("Main functions")
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.markdown("""
-    #### 📊 Phân tích & Backtest
-    - Kiểm thử chiến lược trên dữ liệu lịch sử.
-    - Xem các chỉ số hiệu suất chi tiết (Sharpe, Drawdown, Winrate...).
-    - Biểu đồ hóa kết quả một cách trực quan.
+    #### 📊 Analysis & Backtest
+    - Test strategies on historical data.
+    - View detailed performance metrics (Sharpe, Drawdown, Winrate...).
+    - Visualize results intuitively.
     """)
 
 with col2:
     st.markdown("""
-    #### ⚡ Tối ưu hóa
-    - Tinh chỉnh các tham số của chiến lược.
-    - Sử dụng Grid Search để tìm ra bộ tham số tốt nhất.
-    - So sánh hiệu quả giữa các bộ tham số.
+    #### ⚡ Optimization
+    - Fine-tune strategy parameters.
+    - Use Grid Search to find the best parameter set.
+    - Compare the performance between different parameter sets.
     """)
 
 with col3:
     st.markdown("""
-    #### 🤖 Giao dịch Live
-    - Tích hợp với Alpaca cho paper/live trading.
-    - Tự động thực thi giao dịch dựa trên tín hiệu.
-    - Theo dõi tài khoản và các vị thế đang mở.
+    #### 🤖 Live Trading
+    - Integrate with Alpaca for paper/live trading.
+    - Automatically execute trades based on signals.
+    - Monitor account and open positions.
     """)
 
-st.info("Bắt đầu bằng cách chọn một chức năng từ thanh điều hướng bên trái.", icon="👈")
+st.info("Start by selecting a function from the left navigation pane.", icon="👈")
 

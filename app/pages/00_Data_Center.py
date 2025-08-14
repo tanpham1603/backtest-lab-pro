@@ -7,7 +7,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 
 # --- Cấu hình trang ---
-st.set_page_config(page_title="Data Center", page_icon="🗃️", layout="wide")
+st.set_page_config(page_title=" Let TanPham down data", page_icon="🗃️", layout="wide")
 
 # --- Tùy chỉnh CSS ---
 st.markdown("""
@@ -29,8 +29,8 @@ st.markdown("""
 # --- Sidebar ---
 with st.sidebar:
     st.image("https://streamlit.io/images/brand/streamlit-logo-secondary-colormark-darktext.png", width=200)
-    st.header("⚙️ Cấu hình Dữ liệu")
-    asset_class = st.radio("Loại tài sản:", ["Crypto", "Forex", "Stocks"])
+    st.header("⚙️ Data")
+    asset_class = st.radio("Assets:", ["Crypto", "Forex", "Stocks"])
 
     # Khung thời gian phổ biến
     crypto_timeframes = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
@@ -38,26 +38,26 @@ with st.sidebar:
 
 
     if asset_class == "Crypto":
-        symbol = st.text_input("Cặp giao dịch:", "BTC/USDT")
-        tf = st.selectbox("Khung thời gian:", crypto_timeframes, index=4) 
-        limit = st.slider("Số nến:", 200, 2000, 500)
-    
+        symbol = st.text_input("Pairs:", "BTC/USDT")
+        tf = st.selectbox("Timeframe:", crypto_timeframes, index=4) 
+        limit = st.slider("Number of candles:", 200, 2000, 500)
+
     elif asset_class == "Forex":
-        symbol = st.text_input("Cặp giao dịch:", "EURUSD=X")
-        tf = st.selectbox("Khung thời gian:", yfinance_timeframes, index=4) 
-        limit = st.slider("Số nến:", 200, 1000, 500)
+        symbol = st.text_input("Pairs:", "EURUSD=X")
+        tf = st.selectbox("Timeframe:", yfinance_timeframes, index=4) 
+        limit = st.slider("Number of candles:", 200, 1000, 500)
 
     else: # Stocks
-        symbol = st.text_input("Mã cổ phiếu:", "AAPL")
-        tf = st.selectbox("Khung thời gian:", yfinance_timeframes, index=5)
-        limit = st.slider("Số nến:", 200, 1000, 500)
+        symbol = st.text_input("Pairs:", "AAPL")
+        tf = st.selectbox("Timeframe:", yfinance_timeframes, index=5)
+        limit = st.slider("Number of candles:", 200, 1000, 500)
 
 
 # --- Hàm tải dữ liệu an toàn ---
 @st.cache_data(ttl=300)
 def load_data(asset, sym, timeframe, data_limit):
-    """Tải dữ liệu một cách an toàn và chi tiết."""
-    with st.spinner(f"Đang tải dữ liệu cho {sym}..."):
+    """Dowloading safety."""
+    with st.spinner(f"Dowloading for {sym}..."):
         try:
             if asset == "Crypto":
                 exchange = ccxt.kucoin() 
@@ -91,32 +91,32 @@ def load_data(asset, sym, timeframe, data_limit):
 
 
             if data is None or data.empty:
-                st.error(f"Không nhận được dữ liệu cho mã {sym}. API có thể đã bị lỗi hoặc mã không hợp lệ.")
+                st.error(f"Cannot dowload {sym}. API may wrong or you choose wrong parameters.")
                 return None
             
             return data.tail(data_limit)
         
         except Exception as e:
-            st.error(f"Lỗi hệ thống khi tải dữ liệu cho {sym}: {e}")
+            st.error(f"System error when dowloading data for {sym}: {e}")
             return None
 
 
 # --- Giao diện chính ---
 st.title("🗃️ Data Center")
-st.markdown("### Tải và xem dữ liệu tài chính thô từ nhiều nguồn khác nhau.")
+st.markdown("### Dowloading and view raw data.")
 
-if st.sidebar.button("Tải Dữ liệu", type="primary"):
+if st.sidebar.button("Dowloading data", type="primary"):
     df = load_data(asset_class, symbol, tf, limit)
     
     if df is not None and not df.empty and len(df) > 1:
         required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
         if not all(col in df.columns for col in required_cols):
-            st.error(f"Dữ liệu cho {symbol} không có đủ các cột cần thiết. Các cột hiện có: {list(df.columns)}")
+            st.error(f"Data for {symbol} does not have all the required columns. Current columns: {list(df.columns)}")
         else:
-            st.success(f"Đã tải thành công {len(df)} dòng dữ liệu cho {symbol}.")
-            
-            st.subheader("Tổng quan Dữ liệu")
-            
+            st.success(f"Successfully dowloaded {len(df)} rows of data for {symbol}.")
+
+            st.subheader("Data Overview")
+
             latest_data = df.iloc[-1]
             previous_data = df.iloc[-2]
             change = latest_data['Close'] - previous_data['Close']
@@ -127,12 +127,12 @@ if st.sidebar.button("Tải Dữ liệu", type="primary"):
             period_avg_volume = df['Volume'].mean()
             
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Giá Đóng cửa", f"${latest_data['Close']:,.4f}", f"{change:,.4f} ({change_pct:.2f}%)")
-            col2.metric("Giá Cao nhất (Chu kỳ)", f"${period_high:,.4f}")
-            col3.metric("Giá Thấp nhất (Chu kỳ)", f"${period_low:,.4f}")
-            col4.metric("Khối lượng (TB)", f"{period_avg_volume:,.0f}")
+            col1.metric("Close Price", f"${latest_data['Close']:,.4f}", f"{change:,.4f} ({change_pct:.2f}%)")
+            col2.metric("Period High", f"${period_high:,.4f}")
+            col3.metric("Period Low", f"${period_low:,.4f}")
+            col4.metric("Average Volume", f"{period_avg_volume:,.0f}")
 
-            st.subheader("Biểu đồ Nến (Candlestick Chart)")
+            st.subheader("Candlestick Chart")
             fig = go.Figure(data=[go.Candlestick(
                 x=df.index,
                 open=df['Open'],
@@ -143,21 +143,21 @@ if st.sidebar.button("Tải Dữ liệu", type="primary"):
             )])
             
             fig.update_layout(
-                title=f'Biểu đồ giá cho {symbol}',
-                yaxis_title='Giá',
+                title=f'Candlestick Chart for {symbol}',
+                yaxis_title='Price',
                 template='plotly_dark',
                 height=500,
                 xaxis_rangeslider_visible=False
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            with st.expander("🔬 Xem Dữ liệu thô"):
+            with st.expander("🔬 Raw data"):
                 st.dataframe(df)
     
     elif df is not None and len(df) <= 1:
-        st.warning("Không đủ dữ liệu để hiển thị (cần ít nhất 2 dòng).")
-        
+        st.warning("Not enough data to display (at least 2 rows are required).")
+
     else:
-        st.info("Quá trình tải dữ liệu đã kết thúc. Nếu có lỗi, thông báo sẽ hiển thị ở trên.")
+        st.info("Data dowloading process has completed. If there are errors, notifications will be displayed above.")
 else:
-    st.info(" Vui lòng cấu hình và nhấn 'Tải Dữ liệu' ở thanh bên trái.")
+    st.info("Please configure and click 'Dowloading data' in the left sidebar.")
