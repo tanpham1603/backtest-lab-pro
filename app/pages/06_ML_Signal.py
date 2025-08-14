@@ -20,7 +20,7 @@ st.title("🤖 Tín hiệu Giao dịch từ Machine Learning")
 def load_data_for_signal(asset, sym, timeframe, start, end):
     try:
         if asset == "Crypto":
-            exchange = ccxt.binance()
+            exchange = ccxt.kucoin()
             since = int(datetime.combine(start, datetime.min.time()).timestamp() * 1000)
             ohlcv = exchange.fetch_ohlcv(sym, timeframe, since=since, limit=2000)
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])

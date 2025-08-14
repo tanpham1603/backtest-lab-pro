@@ -71,7 +71,7 @@ with st.sidebar:
 def load_dashboard_data(asset, sym, timeframe, data_limit, start_dt, end_dt):
     try:
         if asset == "Crypto":
-            exchange = ccxt.binance()
+            exchange = ccxt.kucoin()
             ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=data_limit)
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
             data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')

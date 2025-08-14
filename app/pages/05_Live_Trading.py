@@ -66,7 +66,7 @@ class AlpacaTrader:
 def load_data_for_live(symbol, asset_type):
     try:
         if asset_type == "Crypto":
-            exchange = ccxt.binance()
+            exchange = ccxt.kucoin()
             ohlcv = exchange.fetch_ohlcv(symbol, '1d', limit=500)
             data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
             data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms'); data.set_index('timestamp', inplace=True)

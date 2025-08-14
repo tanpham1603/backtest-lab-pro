@@ -35,7 +35,7 @@ def load_price_data(asset_type, sym, timeframe, start_date, end_date):
         end_datetime = datetime.combine(end_date, datetime.max.time())
 
         if asset_type == "Crypto":
-            exchange = ccxt.binance()
+            exchange = ccxt.kucoin()
             all_ohlcv = []
             since = int(start_datetime.timestamp() * 1000)
             end_ts = int(end_datetime.timestamp() * 1000)
