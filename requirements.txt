@@ -10,6 +10,6 @@ ccxt
 alpaca-py
 backtrader
 oandapyV20
-pandas-ta==0.3.14b0
+pandas-ta
 matplotlib
 seaborn
