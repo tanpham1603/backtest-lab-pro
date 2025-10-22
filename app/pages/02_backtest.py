@@ -63,6 +63,9 @@ def load_price_data(asset_type, sym, timeframe, start_date, end_date):
             data.columns = [str(col).capitalize() for col in data.columns]
 
         if data.empty: return None
+        # SỬA LỖI: Thêm dòng này để xóa thông tin múi giờ
+        if data.index.tz is not None:
+            data.index = data.index.tz_localize(None)
         return data
     except Exception as e:
         st.error(f"Error loading data: {e}")
