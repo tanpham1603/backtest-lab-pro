@@ -13,3 +13,4 @@ oandapyV20
 pandas-ta
 matplotlib
 seaborn
+anywidget
