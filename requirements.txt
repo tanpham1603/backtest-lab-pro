@@ -1,9 +1,9 @@
 streamlit
-pandas==1.5.3
-numpy==1.24.4
+pandas
+numpy
 yfinance
 vectorbt
-scikit-learn==1.2.2
+scikit-learn
 joblib
 plotly
 ccxt
