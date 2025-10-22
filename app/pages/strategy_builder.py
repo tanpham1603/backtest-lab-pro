@@ -171,7 +171,11 @@ def main():
         if macd_enabled: strategy_list.append({"kind": "macd", "fast": macd_fast, "slow": macd_slow, "signal": macd_signal})
         
         if strategy_list:
-            data.ta.strategy(ta.Strategy(name="Custom Strategy", ta=strategy_list))
+            # Tạo đối tượng chiến lược trước
+            my_strategy = ta.Strategy(name="Custom Strategy", ta=strategy_list)
+
+            # Áp dụng chiến lược bằng cách gọi .ta() như một hàm
+            data.ta(strategy=my_strategy, append=True)
 
         for p in sma_periods: indicators_dict[f'SMA_{p}'] = data.get(f'SMA_{p}')
         for p in ema_periods: indicators_dict[f'EMA_{p}'] = data.get(f'EMA_{p}')
