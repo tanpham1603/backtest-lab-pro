@@ -16,69 +16,14 @@ import time
 st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
 
 # ===========================
-# 📦 LOAD DATA FUNCTION
-# ===========================
-@st.cache_data(ttl=300)
-def load_dashboard_data(asset, sym, timeframe, data_limit, start_dt, end_dt):
-    try:
-        if asset == "Crypto":
-            exchange = ccxt.kucoin()
-            ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=data_limit)
-            data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-            data.set_index('timestamp', inplace=True)
-        else:
-            yf_timeframe_map = {"1w": "1wk"}
-            interval = yf_timeframe_map.get(timeframe, timeframe)
-            data = yf.download(sym, start=start_dt, end=end_dt, interval=interval, progress=False, auto_adjust=True)
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = data.columns.get_level_values(0)
-            data.columns = [str(col).capitalize() for col in data.columns]
-            data = data.tail(data_limit)
-
-        if data.empty:
-            st.error(f"Cannot retrieve data for {sym}.")
-            return None
-        return data
-    except Exception as e:
-        st.error(f"System error while loading data for {sym}: {e}")
-        return None
-
-# ===========================
-# 🧮 DUNE API FETCH FUNCTION
-# ===========================
-def fetch_dune_query_results(query_id: int):
-    """Lấy kết quả từ Dune API"""
-    try:
-        DUNE_API_KEY = "64Yf8r2u9IZd0PAQJp23w4VHkL3RvIi0"
-    except Exception:
-        st.error("❌ Missing DUNE_API_KEY")
-        return None
-
-    url = f"https://api.dune.com/api/v1/query/{query_id}/results"
-    headers = {"x-dune-api-key": DUNE_API_KEY}
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        st.error(f"Dune API error: {response.status_code}")
-        return None
-
-    data = response.json()
-    if "result" not in data or "rows" not in data["result"]:
-        st.warning("⚠️ No data found in Dune query result.")
-        return None
-
-    return pd.DataFrame(data["result"]["rows"])
-
-# ===========================
-# 🐋 WHALE RATIO FUNCTIONS - ETHERSCAN API FIXED FOR DEPLOY
+# 🐋 WHALE RATIO FUNCTIONS - ETHERSCAN API V2
 # ===========================
 def get_etherscan_api_key():
     """Lấy Etherscan API Key an toàn cho deploy"""
     try:
         # Streamlit secrets (khi deploy)
         api_key = st.secrets["ETHERSCAN_API_KEY"]
-        if api_key and len(api_key) > 10:  # Validate API key format
+        if api_key and len(api_key) > 10:
             return api_key
         else:
             st.error("❌ Etherscan API Key không hợp lệ trong secrets")
@@ -87,31 +32,39 @@ def get_etherscan_api_key():
         st.error(f"❌ Lỗi khi lấy Etherscan API Key: {e}")
         return None
 
-def debug_etherscan_api(token_address):
-    """Debug function chi tiết hơn"""
+def debug_etherscan_api_v2(token_address):
+    """Debug function cho API V2"""
     api_key = get_etherscan_api_key()
     
-    st.write("🔧 **Debug Information:**")
+    st.write("🔧 **Debug Information - Etherscan API V2:**")
     st.write(f"- API Key: {'✅ Found' if api_key else '❌ Missing'}")
     if api_key:
         st.write(f"- API Key (first/last 4 chars): {api_key[:4]}...{api_key[-4:]}")
     st.write(f"- Token Address: {token_address}")
     
-    # Test với các endpoint khác nhau
+    # Test với các endpoint V2
     endpoints = {
-        "tokenSupply": {
-            "url": f"https://api.etherscan.io/api?module=stats&action=tokensupply&contractaddress={token_address}&apikey={api_key}",
-            "description": "Lấy total supply"
+        "tokenSupply V2": {
+            "url": f"https://api.etherscan.io/v2/api?module=stats&action=tokensupply&contractaddress={token_address}&apikey={api_key}",
+            "description": "Lấy total supply (V2)"
         },
-        "tokenHolders": {
-            "url": f"https://api.etherscan.io/api?module=token&action=tokenholderlist&contractaddress={token_address}&page=1&offset=10&apikey={api_key}",
-            "description": "Lấy top 10 holders"
+        "tokenInfo V2": {
+            "url": f"https://api.etherscan.io/v2/api?module=token&action=tokeninfo&contractaddress={token_address}&apikey={api_key}",
+            "description": "Lấy thông tin token (V2)"
+        },
+        "tokenHolders V2": {
+            "url": f"https://api.etherscan.io/v2/api?module=token&action=tokenholderlist&contractaddress={token_address}&page=1&offset=10&apikey={api_key}",
+            "description": "Lấy top holders (V2)"
         }
     }
     
     for endpoint_name, endpoint_info in endpoints.items():
         try:
             st.write(f"\n**{endpoint_name} - {endpoint_info['description']}:**")
+            
+            # Ẩn API key trong log
+            debug_url = endpoint_info['url'].replace(api_key, "API_KEY_HIDDEN") if api_key else endpoint_info['url']
+            st.write(f"- URL: {debug_url}")
             
             response = requests.get(endpoint_info['url'], timeout=15)
             st.write(f"- HTTP Status: {response.status_code}")
@@ -127,28 +80,25 @@ def debug_etherscan_api(token_address):
                         st.write(f"- Result Sample: {str(result[0])[:100]}...")
                     else:
                         st.write(f"- Result: {str(result)[:200]}...")
+                else:
+                    st.write("- Result: None or Empty")
                 
-                # Phân tích lỗi NOTOK
-                if data.get('message') == 'NOTOK':
-                    st.error("❌ Lỗi NOTOK - Nguyên nhân có thể:")
-                    st.write("  - API Key không hợp lệ")
-                    st.write("  - Rate limit vượt quá")
-                    st.write("  - Contract address không tồn tại")
-                    
             else:
-                st.error(f"❌ Lỗi HTTP: {response.status_code}")
+                st.error(f"❌ HTTP Error: {response.status_code}")
+                st.write(f"- Response: {response.text[:200]}...")
                 
         except Exception as e:
             st.error(f"❌ Lỗi: {e}")
 
-def get_token_supply_etherscan(token_address):
-    """Lấy total supply từ Etherscan với error handling tốt hơn"""
+def get_token_supply_etherscan_v2(token_address):
+    """Lấy total supply từ Etherscan API V2"""
     api_key = get_etherscan_api_key()
     if not api_key:
         return None
         
     try:
-        url = f"https://api.etherscan.io/api?module=stats&action=tokensupply&contractaddress={token_address}&apikey={api_key}"
+        # API V2 endpoint
+        url = f"https://api.etherscan.io/v2/api?module=stats&action=tokensupply&contractaddress={token_address}&apikey={api_key}"
         
         # Thêm delay để tránh rate limit
         time.sleep(0.3)
@@ -158,30 +108,31 @@ def get_token_supply_etherscan(token_address):
         if response.status_code == 200:
             data = response.json()
             
-            if data['status'] == '1':
+            if data.get('status') == '1':
                 supply = int(data['result'])
+                st.success(f"✅ Total Supply (V2): {supply:,}")
                 return supply
             else:
                 error_msg = data.get('message', 'Unknown error')
-                st.warning(f"⚠️ Etherscan API Error: {error_msg}")
+                st.warning(f"⚠️ Etherscan API V2 Error: {error_msg}")
                 return None
         else:
             st.error(f"❌ HTTP Error: {response.status_code}")
             return None
             
     except Exception as e:
-        st.error(f"❌ Lỗi: {e}")
+        st.error(f"❌ Lỗi lấy token supply V2: {e}")
         return None
 
-def get_token_holders_etherscan_safe(token_address, max_holders=50):
-    """Lấy holders an toàn với rate limiting"""
+def get_token_holders_etherscan_v2(token_address, max_holders=50):
+    """Lấy holders từ Etherscan API V2"""
     api_key = get_etherscan_api_key()
     if not api_key:
         return None
         
     try:
-        # Chỉ lấy 50 holders đầu tiên để test
-        url = f"https://api.etherscan.io/api?module=token&action=tokenholderlist&contractaddress={token_address}&page=1&offset={max_holders}&apikey={api_key}"
+        # API V2 endpoint
+        url = f"https://api.etherscan.io/v2/api?module=token&action=tokenholderlist&contractaddress={token_address}&page=1&offset={max_holders}&apikey={api_key}"
         
         # Thêm delay để tránh rate limit
         time.sleep(0.5)
@@ -191,29 +142,68 @@ def get_token_holders_etherscan_safe(token_address, max_holders=50):
         if response.status_code == 200:
             data = response.json()
             
-            if data['status'] == '1':
-                holders = data['result']
+            if data.get('status') == '1':
+                holders = data.get('result', [])
                 if holders and len(holders) > 0:
+                    st.success(f"✅ Lấy được {len(holders)} holders từ API V2")
                     return holders
                 else:
                     st.warning("⚠️ Token có vẻ như không có holders hoặc dữ liệu trống")
                     return None
             else:
                 error_msg = data.get('message', 'Unknown error')
-                st.warning(f"⚠️ Không thể lấy holders: {error_msg}")
+                st.warning(f"⚠️ Không thể lấy holders V2: {error_msg}")
                 return None
         else:
-            st.error(f"❌ HTTP Error: {response.status_code}")
+            st.error(f"❌ HTTP Error V2: {response.status_code}")
             return None
             
     except Exception as e:
-        st.error(f"❌ Lỗi khi lấy holders: {e}")
+        st.error(f"❌ Lỗi khi lấy holders V2: {e}")
         return None
 
-def calculate_whale_metrics(holders_data, total_supply):
+def get_token_info_etherscan_v2(token_address):
+    """Lấy thông tin token từ Etherscan API V2"""
+    api_key = get_etherscan_api_key()
+    if not api_key:
+        return None
+        
+    try:
+        # API V2 endpoint for token info
+        url = f"https://api.etherscan.io/v2/api?module=token&action=tokeninfo&contractaddress={token_address}&apikey={api_key}"
+        
+        time.sleep(0.3)
+        response = requests.get(url, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('status') == '1' and data.get('result'):
+                token_data = data['result'][0]  # Lấy token đầu tiên
+                return {
+                    'name': token_data.get('tokenName', 'Unknown'),
+                    'symbol': token_data.get('tokenSymbol', 'UNKN'),
+                    'decimals': int(token_data.get('divisor', 18)),
+                    'total_supply': int(token_data.get('totalSupply', 0))
+                }
+            else:
+                st.warning(f"⚠️ Không thể lấy token info V2: {data.get('message', 'Unknown error')}")
+                return None
+        else:
+            st.error(f"❌ HTTP Error V2: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        st.error(f"❌ Lỗi lấy token info V2: {e}")
+        return None
+
+def calculate_whale_metrics(holders_data, total_supply, decimals=18):
     """Tính toán các chỉ số whale từ dữ liệu holders"""
     if not holders_data or total_supply == 0:
         return None
+    
+    # Convert total supply to actual value (considering decimals)
+    total_supply_actual = total_supply / (10 ** decimals)
     
     # Sắp xếp holders theo balance giảm dần
     sorted_holders = sorted(holders_data, key=lambda x: float(x.get('value', 0)), reverse=True)
@@ -225,13 +215,13 @@ def calculate_whale_metrics(holders_data, total_supply):
     
     metrics = {
         'total_holders': len(holders_data),
-        'total_supply': total_supply,
-        'whale_ratio_10': (top_10_balance / total_supply) * 100,
-        'whale_ratio_20': (top_20_balance / total_supply) * 100,
-        'whale_ratio_50': (top_50_balance / total_supply) * 100,
+        'total_supply': total_supply_actual,
+        'whale_ratio_10': (top_10_balance / total_supply_actual) * 100 if total_supply_actual > 0 else 0,
+        'whale_ratio_20': (top_20_balance / total_supply_actual) * 100 if total_supply_actual > 0 else 0,
+        'whale_ratio_50': (top_50_balance / total_supply_actual) * 100 if total_supply_actual > 0 else 0,
         'top_10_holders': sorted_holders[:10],
         'top_20_holders': sorted_holders[:20],
-        'gini_coefficient': calculate_gini_coefficient(sorted_holders, total_supply)
+        'gini_coefficient': calculate_gini_coefficient(sorted_holders, total_supply_actual)
     }
     
     return metrics
@@ -255,16 +245,13 @@ def calculate_gini_coefficient(holders, total_supply):
     
     # Gini coefficient
     gini = (n + 1 - 2 * area_under_curve) / n
-    return max(0, min(1, gini))  # Đảm bảo trong khoảng 0-1
+    return max(0, min(1, gini))
 
 def create_whale_chart(metrics):
-    """
-    Tạo biểu đồ whale distribution
-    """
+    """Tạo biểu đồ whale distribution"""
     if not metrics:
         return None
     
-    # Data for chart
     categories = ['Top 10', 'Top 20', 'Top 50']
     percentages = [
         metrics['whale_ratio_10'],
@@ -274,11 +261,9 @@ def create_whale_chart(metrics):
     
     fig = go.Figure()
     
-    # Whale ratio bars
     fig.add_trace(go.Bar(
         x=categories,
         y=percentages,
-        name='Whale Ratio',
         marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1'],
         text=[f'{p:.1f}%' for p in percentages],
         textposition='auto',
@@ -296,9 +281,7 @@ def create_whale_chart(metrics):
     return fig
 
 def create_distribution_pie(metrics):
-    """
-    Tạo pie chart phân bổ supply
-    """
+    """Tạo pie chart phân bổ supply"""
     if not metrics:
         return None
     
@@ -306,6 +289,11 @@ def create_distribution_pie(metrics):
     top_11_20_supply = metrics['whale_ratio_20'] - metrics['whale_ratio_10']
     top_21_50_supply = metrics['whale_ratio_50'] - metrics['whale_ratio_20']
     rest_supply = 100 - metrics['whale_ratio_50']
+    
+    # Đảm bảo không có giá trị âm
+    top_11_20_supply = max(0, top_11_20_supply)
+    top_21_50_supply = max(0, top_21_50_supply)
+    rest_supply = max(0, rest_supply)
     
     labels = ['Top 10 Whales', 'Top 11-20', 'Top 21-50', 'Rest Holders']
     values = [top_10_supply, top_11_20_supply, top_21_50_supply, rest_supply]
@@ -323,59 +311,68 @@ def create_distribution_pie(metrics):
     
     return fig
 
-# ===========================
-# 🧪 TEST WITH MOCK DATA AS FALLBACK
-# ===========================
-def get_whale_data_with_fallback(token_address):
-    """Lấy dữ liệu whale với fallback sang mock data nếu API fail"""
+def get_whale_data_etherscan_v2(token_address):
+    """Lấy dữ liệu whale từ Etherscan API V2"""
     
-    # Thử lấy dữ liệu thật từ Etherscan
-    total_supply = get_token_supply_etherscan(token_address)
-    holders_data = get_token_holders_etherscan_safe(token_address)
+    # Thử lấy thông tin token trước
+    token_info = get_token_info_etherscan_v2(token_address)
     
-    if total_supply and holders_data:
-        # Dữ liệu thật thành công
-        metrics = calculate_whale_metrics(holders_data, total_supply)
-        if metrics:
-            metrics['source'] = 'etherscan'
-            return metrics
+    if token_info:
+        st.success(f"✅ Token: {token_info['name']} ({token_info['symbol']})")
+        
+        # Lấy total supply
+        total_supply = get_token_supply_etherscan_v2(token_address)
+        
+        if total_supply:
+            # Lấy holders
+            holders_data = get_token_holders_etherscan_v2(token_address, max_holders=100)
+            
+            if holders_data:
+                # Tính toán metrics
+                metrics = calculate_whale_metrics(holders_data, total_supply, token_info.get('decimals', 18))
+                if metrics:
+                    metrics.update({
+                        'name': token_info['name'],
+                        'symbol': token_info['symbol'],
+                        'source': 'etherscan_v2'
+                    })
+                    return metrics
     
-    # Fallback sang mock data để demo UI
-    st.warning("🔄 Đang sử dụng mock data để demo (API có thể bị limit)")
-    
-    # Mock data cho các token phổ biến
+    # Fallback sang mock data nếu API fail
+    st.warning("🔄 Đang sử dụng mock data (API V2 có thể cần time để active)")
+    return get_realistic_mock_data(token_address)
+
+def get_realistic_mock_data(token_address):
+    """Mock data fallback"""
     mock_data = {
-        "0xdAC17F958D2ee523a2206206994597C13D831ec7": {  # USDT
+        "0xdac17f958d2ee523a2206206994597c13d831ec7": {
+            'name': 'Tether USD',
+            'symbol': 'USDT',
             'total_holders': 4500000,
             'total_supply': 100000000000,
-            'whale_ratio_10': 35.2,
-            'whale_ratio_20': 48.7,
-            'whale_ratio_50': 62.1,
-            'gini_coefficient': 0.78,
+            'whale_ratio_10': 15.2,
+            'whale_ratio_20': 22.7,
+            'whale_ratio_50': 35.1,
+            'gini_coefficient': 0.68,
             'source': 'mock'
         },
-        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48": {  # USDC
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": {
+            'name': 'USD Coin',
+            'symbol': 'USDC', 
             'total_holders': 2800000,
             'total_supply': 50000000000,
-            'whale_ratio_10': 28.5,
-            'whale_ratio_20': 42.3,
-            'whale_ratio_50': 58.9,
-            'gini_coefficient': 0.72,
-            'source': 'mock'
-        },
-        "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984": {  # UNI
-            'total_holders': 320000,
-            'total_supply': 1000000000,
-            'whale_ratio_10': 42.1,
-            'whale_ratio_20': 55.6,
-            'whale_ratio_50': 68.9,
-            'gini_coefficient': 0.81,
+            'whale_ratio_10': 18.5,
+            'whale_ratio_20': 26.3,
+            'whale_ratio_50': 38.9,
+            'gini_coefficient': 0.62,
             'source': 'mock'
         }
     }
     
-    # Mock data mặc định cho token khác
-    default_mock = {
+    normalized_address = token_address.lower()
+    return mock_data.get(normalized_address, {
+        'name': 'Unknown Token',
+        'symbol': 'UNKN',
         'total_holders': 150000,
         'total_supply': 1000000000,
         'whale_ratio_10': 25.5,
@@ -383,9 +380,7 @@ def get_whale_data_with_fallback(token_address):
         'whale_ratio_50': 52.7,
         'gini_coefficient': 0.65,
         'source': 'mock'
-    }
-    
-    return mock_data.get(token_address, default_mock)
+    })
 
 # ===========================
 # 🔧 CALLBACK FUNCTIONS
@@ -399,25 +394,25 @@ if "whale_token_address" not in st.session_state:
     st.session_state.whale_token_address = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
 
 # ===========================
-# 🖥️ MAIN UI - SIMPLIFIED FOR DEPLOY
+# 🖥️ MAIN UI - ETHERSCAN API V2
 # ===========================
 st.title("📊 Market Overview")
 
 # ===========================
-# 🐋 WHALE RATIO SECTION - DEPLOY FRIENDLY
+# 🐋 WHALE RATIO SECTION - ETHERSCAN API V2
 # ===========================
 st.markdown("---")
-st.header("🐋 Whale Ratio Analysis")
+st.header("🐋 Whale Ratio Analysis - Etherscan API V2")
 
-tab1, tab2 = st.tabs(["🔍 Token Analysis", "📊 Dune Analytics"])
+tab1, tab2 = st.tabs(["🔍 Etherscan API V2", "📊 Dune Analytics"])
 
 with tab1:
-    st.subheader("Token Holder Concentration")
+    st.subheader("Token Holder Concentration - API V2")
     
     # Debug section
-    with st.expander("🔧 Debug Etherscan API", expanded=False):
-        if st.button("Run Debug"):
-            debug_etherscan_api(st.session_state.whale_token_address)
+    with st.expander("🔧 Debug Etherscan API V2", expanded=False):
+        if st.button("Run Debug V2"):
+            debug_etherscan_api_v2(st.session_state.whale_token_address)
     
     col1, col2 = st.columns([3, 1])
     
@@ -430,18 +425,18 @@ with tab1:
     
     with col2:
         st.markdown("###")
-        analyze_btn = st.button("🚀 Analyze", type="primary", key="whale_analyze_btn")
+        analyze_btn = st.button("🚀 Analyze with V2 API", type="primary", key="whale_analyze_btn_v2")
     
     if analyze_btn and token_address:
         if not token_address.startswith("0x") or len(token_address) != 42:
-            st.error("❌ Địa chỉ token không hợp lệ. Phải bắt đầu bằng 0x và có 42 ký tự.")
+            st.error("❌ Địa chỉ token không hợp lệ.")
         else:
-            with st.spinner("Đang phân tích whale ratio..."):
-                # Sử dụng hàm có fallback
-                metrics = get_whale_data_with_fallback(token_address)
+            with st.spinner("Đang phân tích với Etherscan API V2..."):
+                # Sử dụng API V2
+                metrics = get_whale_data_etherscan_v2(token_address)
                 
                 if metrics:
-                    source_badge = "🔴 Live Data" if metrics.get('source') == 'etherscan' else "🟡 Demo Data"
+                    source_badge = "🔴 Live Data (V2)" if metrics.get('source') == 'etherscan_v2' else "🟡 Demo Data"
                     st.success(f"✅ Phân tích thành công! {source_badge}")
                     
                     # Hiển thị KPI cards
@@ -486,33 +481,21 @@ with tab1:
                         pie_chart = create_distribution_pie(metrics)
                         if pie_chart:
                             st.plotly_chart(pie_chart, use_container_width=True)
-                    
-                    # Risk assessment
-                    st.subheader("📊 Đánh giá rủi ro")
-                    
-                    if metrics['whale_ratio_10'] > 70:
-                        st.error("**CẢNH BÁO CAO**: Token rất tập trung, top 10 holders nắm giữ hơn 70% supply!")
-                    elif metrics['whale_ratio_10'] > 50:
-                        st.warning("**CẢNH BÁO**: Token khá tập trung, top 10 holders nắm giữ hơn 50% supply")
-                    elif metrics['whale_ratio_10'] > 30:
-                        st.info("**TRUNG BÌNH**: Token có mức độ tập trung vừa phải")
-                    else:
-                        st.success("**TỐT**: Token phân bổ khá đồng đều")
     
     # Quick test buttons
-    st.subheader("🚀 Test nhanh")
+    st.subheader("🚀 Test với token phổ biến")
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("USDT", use_container_width=True):
+        if st.button("USDT", use_container_width=True, key="usdt_btn_v2"):
             set_token_address("0xdAC17F958D2ee523a2206206994597C13D831ec7")
     
     with col2:
-        if st.button("USDC", use_container_width=True):
+        if st.button("USDC", use_container_width=True, key="usdc_btn_v2"):
             set_token_address("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
     
     with col3:
-        if st.button("UNI", use_container_width=True):
+        if st.button("UNI", use_container_width=True, key="uni_btn_v2"):
             set_token_address("0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984")
     
     st.info(f"🔍 Token address hiện tại: `{st.session_state.whale_token_address}`")
@@ -523,4 +506,4 @@ with tab2:
 
 # Footer
 st.markdown("---")
-st.markdown("*Dashboard built with Streamlit • Etherscan API • Dune Analytics*")
+st.markdown("*Dashboard built with Streamlit • Etherscan API V2 • Dune Analytics*")
