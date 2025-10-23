@@ -16,6 +16,61 @@ import time
 st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
 
 # ===========================
+# 📦 LOAD DATA FUNCTION
+# ===========================
+@st.cache_data(ttl=300)
+def load_dashboard_data(asset, sym, timeframe, data_limit, start_dt, end_dt):
+    try:
+        if asset == "Crypto":
+            exchange = ccxt.kucoin()
+            ohlcv = exchange.fetch_ohlcv(sym, timeframe, limit=data_limit)
+            data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+            data.set_index('timestamp', inplace=True)
+        else:
+            yf_timeframe_map = {"1w": "1wk"}
+            interval = yf_timeframe_map.get(timeframe, timeframe)
+            data = yf.download(sym, start=start_dt, end=end_dt, interval=interval, progress=False, auto_adjust=True)
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
+            data.columns = [str(col).capitalize() for col in data.columns]
+            data = data.tail(data_limit)
+
+        if data.empty:
+            st.error(f"Cannot retrieve data for {sym}.")
+            return None
+        return data
+    except Exception as e:
+        st.error(f"System error while loading data for {sym}: {e}")
+        return None
+
+# ===========================
+# 🧮 DUNE API FETCH FUNCTION
+# ===========================
+def fetch_dune_query_results(query_id: int):
+    """Lấy kết quả từ Dune API"""
+    try:
+        DUNE_API_KEY = "64Yf8r2u9IZd0PAQJp23w4VHkL3RvIi0"
+    except Exception:
+        st.error("❌ Missing DUNE_API_KEY")
+        return None
+
+    url = f"https://api.dune.com/api/v1/query/{query_id}/results"
+    headers = {"x-dune-api-key": DUNE_API_KEY}
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        st.error(f"Dune API error: {response.status_code}")
+        return None
+
+    data = response.json()
+    if "result" not in data or "rows" not in data["result"]:
+        st.warning("⚠️ No data found in Dune query result.")
+        return None
+
+    return pd.DataFrame(data["result"]["rows"])
+
+# ===========================
 # 🐋 WHALE RATIO FUNCTIONS - ETHERSCAN API FIXED FOR DEPLOY
 # ===========================
 def get_etherscan_api_key():
@@ -51,19 +106,12 @@ def debug_etherscan_api(token_address):
         "tokenHolders": {
             "url": f"https://api.etherscan.io/api?module=token&action=tokenholderlist&contractaddress={token_address}&page=1&offset=10&apikey={api_key}",
             "description": "Lấy top 10 holders"
-        },
-        "tokenInfo": {
-            "url": f"https://api.etherscan.io/api?module=token&action=tokeninfo&contractaddress={token_address}&apikey={api_key}",
-            "description": "Lấy thông tin token"
         }
     }
     
     for endpoint_name, endpoint_info in endpoints.items():
         try:
             st.write(f"\n**{endpoint_name} - {endpoint_info['description']}:**")
-            # Ẩn API key trong log
-            debug_url = endpoint_info['url'].replace(api_key, "API_KEY_HIDDEN") if api_key else endpoint_info['url']
-            st.write(f"- URL: {debug_url}")
             
             response = requests.get(endpoint_info['url'], timeout=15)
             st.write(f"- HTTP Status: {response.status_code}")
@@ -72,7 +120,6 @@ def debug_etherscan_api(token_address):
                 data = response.json()
                 st.write(f"- API Status: {data.get('status')}")
                 st.write(f"- Message: {data.get('message')}")
-                st.write(f"- Result Type: {type(data.get('result'))}")
                 
                 if data.get('result'):
                     result = data['result']
@@ -87,11 +134,9 @@ def debug_etherscan_api(token_address):
                     st.write("  - API Key không hợp lệ")
                     st.write("  - Rate limit vượt quá")
                     st.write("  - Contract address không tồn tại")
-                    st.write("  - Endpoint không khả dụng")
                     
             else:
                 st.error(f"❌ Lỗi HTTP: {response.status_code}")
-                st.write(f"- Response: {response.text[:200]}...")
                 
         except Exception as e:
             st.error(f"❌ Lỗi: {e}")
@@ -119,23 +164,11 @@ def get_token_supply_etherscan(token_address):
             else:
                 error_msg = data.get('message', 'Unknown error')
                 st.warning(f"⚠️ Etherscan API Error: {error_msg}")
-                
-                # Gợi ý fix dựa trên error message
-                if 'rate limit' in error_msg.lower():
-                    st.info("💡 Gợi ý: Đợi 1-2 phút rồi thử lại (rate limit)")
-                elif 'invalid API Key' in error_msg:
-                    st.error("❌ API Key không hợp lệ. Kiểm tra lại trong Streamlit secrets.")
-                elif 'invalid address' in error_msg:
-                    st.error("❌ Contract address không hợp lệ.")
-                    
                 return None
         else:
             st.error(f"❌ HTTP Error: {response.status_code}")
             return None
             
-    except requests.exceptions.Timeout:
-        st.error("⏰ Timeout khi kết nối đến Etherscan API")
-        return None
     except Exception as e:
         st.error(f"❌ Lỗi: {e}")
         return None
@@ -176,6 +209,119 @@ def get_token_holders_etherscan_safe(token_address, max_holders=50):
     except Exception as e:
         st.error(f"❌ Lỗi khi lấy holders: {e}")
         return None
+
+def calculate_whale_metrics(holders_data, total_supply):
+    """Tính toán các chỉ số whale từ dữ liệu holders"""
+    if not holders_data or total_supply == 0:
+        return None
+    
+    # Sắp xếp holders theo balance giảm dần
+    sorted_holders = sorted(holders_data, key=lambda x: float(x.get('value', 0)), reverse=True)
+    
+    # Tính toán các metrics
+    top_10_balance = sum(float(holder.get('value', 0)) for holder in sorted_holders[:10])
+    top_20_balance = sum(float(holder.get('value', 0)) for holder in sorted_holders[:20])
+    top_50_balance = sum(float(holder.get('value', 0)) for holder in sorted_holders[:50])
+    
+    metrics = {
+        'total_holders': len(holders_data),
+        'total_supply': total_supply,
+        'whale_ratio_10': (top_10_balance / total_supply) * 100,
+        'whale_ratio_20': (top_20_balance / total_supply) * 100,
+        'whale_ratio_50': (top_50_balance / total_supply) * 100,
+        'top_10_holders': sorted_holders[:10],
+        'top_20_holders': sorted_holders[:20],
+        'gini_coefficient': calculate_gini_coefficient(sorted_holders, total_supply)
+    }
+    
+    return metrics
+
+def calculate_gini_coefficient(holders, total_supply):
+    """Tính hệ số Gini - đo lường độ tập trung"""
+    if total_supply == 0:
+        return 0
+    
+    balances = [float(holder.get('value', 0)) for holder in holders]
+    balances.sort()
+    
+    n = len(balances)
+    if n == 0:
+        return 0
+        
+    cumulative_balances = [sum(balances[:i+1]) for i in range(n)]
+    
+    # Area under Lorenz curve
+    area_under_curve = sum(cumulative_balances) / cumulative_balances[-1] if cumulative_balances[-1] > 0 else 0
+    
+    # Gini coefficient
+    gini = (n + 1 - 2 * area_under_curve) / n
+    return max(0, min(1, gini))  # Đảm bảo trong khoảng 0-1
+
+def create_whale_chart(metrics):
+    """
+    Tạo biểu đồ whale distribution
+    """
+    if not metrics:
+        return None
+    
+    # Data for chart
+    categories = ['Top 10', 'Top 20', 'Top 50']
+    percentages = [
+        metrics['whale_ratio_10'],
+        metrics['whale_ratio_20'], 
+        metrics['whale_ratio_50']
+    ]
+    
+    fig = go.Figure()
+    
+    # Whale ratio bars
+    fig.add_trace(go.Bar(
+        x=categories,
+        y=percentages,
+        name='Whale Ratio',
+        marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1'],
+        text=[f'{p:.1f}%' for p in percentages],
+        textposition='auto',
+    ))
+    
+    fig.update_layout(
+        title='Whale Concentration Ratios',
+        xaxis_title='Holder Groups',
+        yaxis_title='Percentage of Total Supply (%)',
+        showlegend=False,
+        height=400,
+        template='plotly_dark'
+    )
+    
+    return fig
+
+def create_distribution_pie(metrics):
+    """
+    Tạo pie chart phân bổ supply
+    """
+    if not metrics:
+        return None
+    
+    top_10_supply = metrics['whale_ratio_10']
+    top_11_20_supply = metrics['whale_ratio_20'] - metrics['whale_ratio_10']
+    top_21_50_supply = metrics['whale_ratio_50'] - metrics['whale_ratio_20']
+    rest_supply = 100 - metrics['whale_ratio_50']
+    
+    labels = ['Top 10 Whales', 'Top 11-20', 'Top 21-50', 'Rest Holders']
+    values = [top_10_supply, top_11_20_supply, top_21_50_supply, rest_supply]
+    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
+    
+    fig = px.pie(
+        names=labels, 
+        values=values,
+        title='Token Supply Distribution',
+        color_discrete_sequence=colors
+    )
+    
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+    fig.update_layout(template='plotly_dark')
+    
+    return fig
 
 # ===========================
 # 🧪 TEST WITH MOCK DATA AS FALLBACK
