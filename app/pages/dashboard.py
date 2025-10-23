@@ -1,12 +1,14 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import ccxt
 import yfinance as yf
 import pandas_ta as ta
 from datetime import datetime, timedelta
 import requests
 import os
+import time
 
 # ===========================
 # ⚙️ CONFIGURATION
@@ -125,6 +127,265 @@ def fetch_dune_query_results(query_id: int):
     return pd.DataFrame(data["result"]["rows"])
 
 # ===========================
+# 🐋 WHALE RATIO FUNCTIONS - ETHERSCAN API FIXED
+# ===========================
+def get_etherscan_api_key():
+    """Lấy Etherscan API Key từ secrets"""
+    try:
+        return st.secrets["ETHERSCAN_API_KEY"]
+    except:
+        st.error("❌ Missing ETHERSCAN_API_KEY in Streamlit secrets.")
+        return None
+
+def debug_etherscan_api(token_address):
+    """Debug function to check Etherscan API"""
+    api_key = get_etherscan_api_key()
+    
+    st.write("🔧 **Debug Information:**")
+    st.write(f"- API Key: {'✅ Found' if api_key else '❌ Missing'}")
+    st.write(f"- Token Address: {token_address}")
+    
+    # Test multiple endpoints
+    endpoints = {
+        "tokenSupply": f"https://api.etherscan.io/api?module=stats&action=tokensupply&contractaddress={token_address}&apikey={api_key}",
+        "tokenBalance": f"https://api.etherscan.io/api?module=account&action=tokenbalance&contractaddress={token_address}&address=0x0000000000000000000000000000000000000000&tag=latest&apikey={api_key}",
+        "getSourceCode": f"https://api.etherscan.io/api?module=contract&action=getsourcecode&address={token_address}&apikey={api_key}"
+    }
+    
+    for endpoint_name, url in endpoints.items():
+        try:
+            response = requests.get(url, timeout=10)
+            st.write(f"\n**{endpoint_name}:**")
+            st.write(f"- Status: {response.status_code}")
+            if response.status_code == 200:
+                data = response.json()
+                st.write(f"- API Status: {data.get('status')}")
+                st.write(f"- Message: {data.get('message')}")
+                if data.get('result'):
+                    result_str = str(data['result'])
+                    if len(result_str) > 200:
+                        result_str = result_str[:200] + "..."
+                    st.write(f"- Result: {result_str}")
+        except Exception as e:
+            st.write(f"- Error: {e}")
+
+def get_token_supply_etherscan(token_address):
+    """Lấy total supply từ Etherscan - endpoint đơn giản hơn"""
+    api_key = get_etherscan_api_key()
+    if not api_key:
+        return None
+        
+    try:
+        url = f"https://api.etherscan.io/api?module=stats&action=tokensupply&contractaddress={token_address}&apikey={api_key}"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data['status'] == '1':
+                supply = int(data['result'])
+                st.success(f"✅ Total Supply: {supply:,}")
+                return supply
+            else:
+                st.warning(f"⚠️ Etherscan API: {data.get('message', 'Unknown error')}")
+        return None
+    except Exception as e:
+        st.error(f"Lỗi lấy token supply: {e}")
+        return None
+
+def get_token_holders_etherscan(token_address, page=1, offset=100):
+    """Lấy danh sách holders từ Etherscan API - FIXED VERSION"""
+    api_key = get_etherscan_api_key()
+    if not api_key:
+        return None
+        
+    try:
+        url = f"https://api.etherscan.io/api?module=token&action=tokenholderlist&contractaddress={token_address}&page={page}&offset={offset}&apikey={api_key}"
+        response = requests.get(url, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data['status'] == '1':
+                return data['result']
+            else:
+                st.warning(f"Etherscan API: {data.get('message', 'Unknown error')}")
+                return None
+        else:
+            st.error(f"Lỗi HTTP: {response.status_code}")
+            return None
+            
+    except requests.exceptions.Timeout:
+        st.error("⏰ Timeout khi kết nối đến Etherscan API")
+        return None
+    except Exception as e:
+        st.error(f"Lỗi kết nối: {e}")
+        return None
+
+def get_token_holders_with_retry(token_address, max_holders=100):
+    """
+    Lấy holders với retry logic và giới hạn số lượng
+    """
+    all_holders = []
+    page = 1
+    offset = 100  # Etherscan limit per page
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    while len(all_holders) < max_holders:
+        status_text.text(f"Đang tải trang {page}... ({len(all_holders)} holders)")
+        progress_bar.progress(min(len(all_holders) / max_holders, 1.0))
+        
+        holders = get_token_holders_etherscan(token_address, page, offset)
+        
+        if not holders:
+            break
+            
+        all_holders.extend(holders)
+        
+        # Nếu số holders trả về ít hơn offset, có nghĩa là đã hết
+        if len(holders) < offset:
+            break
+            
+        page += 1
+        
+        # Rate limiting - tránh bị block
+        time.sleep(0.5)
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    return all_holders[:max_holders]
+
+def calculate_whale_metrics(holders_data, total_supply):
+    """
+    Tính toán các chỉ số whale từ dữ liệu holders
+    """
+    if not holders_data or total_supply == 0:
+        return None
+    
+    # Sắp xếp holders theo balance giảm dần
+    sorted_holders = sorted(holders_data, key=lambda x: float(x.get('value', 0)), reverse=True)
+    
+    # Tính toán các metrics
+    top_10_balance = sum(float(holder.get('value', 0)) for holder in sorted_holders[:10])
+    top_20_balance = sum(float(holder.get('value', 0)) for holder in sorted_holders[:20])
+    top_50_balance = sum(float(holder.get('value', 0)) for holder in sorted_holders[:50])
+    
+    metrics = {
+        'total_holders': len(holders_data),
+        'total_supply': total_supply,
+        'whale_ratio_10': (top_10_balance / total_supply) * 100,
+        'whale_ratio_20': (top_20_balance / total_supply) * 100,
+        'whale_ratio_50': (top_50_balance / total_supply) * 100,
+        'top_10_holders': sorted_holders[:10],
+        'top_20_holders': sorted_holders[:20],
+        'gini_coefficient': calculate_gini_coefficient(sorted_holders, total_supply)
+    }
+    
+    return metrics
+
+def calculate_gini_coefficient(holders, total_supply):
+    """
+    Tính hệ số Gini - đo lường độ tập trung
+    """
+    if total_supply == 0:
+        return 0
+    
+    balances = [float(holder.get('value', 0)) for holder in holders]
+    balances.sort()
+    
+    n = len(balances)
+    if n == 0:
+        return 0
+        
+    cumulative_balances = [sum(balances[:i+1]) for i in range(n)]
+    
+    # Area under Lorenz curve
+    area_under_curve = sum(cumulative_balances) / cumulative_balances[-1] if cumulative_balances[-1] > 0 else 0
+    
+    # Gini coefficient
+    gini = (n + 1 - 2 * area_under_curve) / n
+    return max(0, min(1, gini))  # Đảm bảo trong khoảng 0-1
+
+def create_whale_chart(metrics):
+    """
+    Tạo biểu đồ whale distribution
+    """
+    if not metrics:
+        return None
+    
+    # Data for chart
+    categories = ['Top 10', 'Top 20', 'Top 50']
+    percentages = [
+        metrics['whale_ratio_10'],
+        metrics['whale_ratio_20'], 
+        metrics['whale_ratio_50']
+    ]
+    
+    fig = go.Figure()
+    
+    # Whale ratio bars
+    fig.add_trace(go.Bar(
+        x=categories,
+        y=percentages,
+        name='Whale Ratio',
+        marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1'],
+        text=[f'{p:.1f}%' for p in percentages],
+        textposition='auto',
+    ))
+    
+    fig.update_layout(
+        title='Whale Concentration Ratios',
+        xaxis_title='Holder Groups',
+        yaxis_title='Percentage of Total Supply (%)',
+        showlegend=False,
+        height=400,
+        template='plotly_dark'
+    )
+    
+    return fig
+
+def create_distribution_pie(metrics):
+    """
+    Tạo pie chart phân bổ supply
+    """
+    if not metrics:
+        return None
+    
+    top_10_supply = metrics['whale_ratio_10']
+    top_11_20_supply = metrics['whale_ratio_20'] - metrics['whale_ratio_10']
+    top_21_50_supply = metrics['whale_ratio_50'] - metrics['whale_ratio_20']
+    rest_supply = 100 - metrics['whale_ratio_50']
+    
+    labels = ['Top 10 Whales', 'Top 11-20', 'Top 21-50', 'Rest Holders']
+    values = [top_10_supply, top_11_20_supply, top_21_50_supply, rest_supply]
+    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4']
+    
+    fig = px.pie(
+        names=labels, 
+        values=values,
+        title='Token Supply Distribution',
+        color_discrete_sequence=colors
+    )
+    
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+    fig.update_layout(template='plotly_dark')
+    
+    return fig
+
+# ===========================
+# 🔧 CALLBACK FUNCTIONS FOR SESSION STATE
+# ===========================
+def set_token_address(token_addr):
+    """Callback function to set token address in session state"""
+    st.session_state.whale_token_address = token_addr
+    st.rerun()
+
+# Initialize session state for whale token address
+if "whale_token_address" not in st.session_state:
+    st.session_state.whale_token_address = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+
+# ===========================
 # 🖥️ MAIN UI
 # ===========================
 st.title("📊 Market Overview")
@@ -184,31 +445,215 @@ if data is not None and not data.empty:
         st.dataframe(data.tail(100))
 
     # ===========================
-    # 🐋 WHALE RATIO SECTION
+    # 🐋 WHALE RATIO SECTION - ETHERSCAN API FIXED
     # ===========================
-    st.subheader("🐋 Whale Ratio (Real Data from Dune)")
+    st.markdown("---")
+    st.header("🐋 Whale Ratio Analysis - Etherscan API")
+    
+    # Tabs for different whale ratio methods
+    tab1, tab2 = st.tabs(["🔍 Etherscan API", "📊 Dune Analytics"])
+    
+    with tab1:
+        st.subheader("Token Holder Concentration Analysis")
+        
+        # Debug button
+        if st.button("🔧 Debug Etherscan API"):
+            debug_etherscan_api(st.session_state.whale_token_address)
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            token_address = st.text_input(
+                "Token Contract Address (ETH):",
+                placeholder="0x...",
+                value=st.session_state.whale_token_address,
+                key="whale_token_address_input"
+            )
+        
+        with col2:
+            st.markdown("###")
+            analyze_btn = st.button("🚀 Analyze Whale Ratio", type="primary", key="whale_analyze_btn")
+        
+        if analyze_btn and token_address:
+            with st.spinner("Đang phân tích whale ratio..."):
+                # Validate token address format
+                if not token_address.startswith("0x") or len(token_address) != 42:
+                    st.error("❌ Địa chỉ token không hợp lệ. Phải bắt đầu bằng 0x và có 42 ký tự.")
+                else:
+                    # Lấy total supply trước
+                    total_supply = get_token_supply_etherscan(token_address)
+                    
+                    if total_supply and total_supply > 0:
+                        # Lấy danh sách holders
+                        holders_data = get_token_holders_with_retry(token_address, max_holders=100)
+                        
+                        if holders_data:
+                            # Tính toán metrics
+                            metrics = calculate_whale_metrics(holders_data, total_supply)
+                            
+                            if metrics:
+                                # Hiển thị KPI cards
+                                st.success("✅ Phân tích thành công!")
+                                
+                                col1, col2, col3, col4 = st.columns(4)
+                                
+                                with col1:
+                                    st.metric(
+                                        label="Top 10 Whale Ratio", 
+                                        value=f"{metrics['whale_ratio_10']:.1f}%",
+                                        delta="High" if metrics['whale_ratio_10'] > 50 else "Medium"
+                                    )
+                                
+                                with col2:
+                                    st.metric(
+                                        label="Total Holders", 
+                                        value=f"{metrics['total_holders']:,}"
+                                    )
+                                
+                                with col3:
+                                    st.metric(
+                                        label="Gini Coefficient", 
+                                        value=f"{metrics['gini_coefficient']:.3f}",
+                                        delta="Concentrated" if metrics['gini_coefficient'] > 0.6 else "Distributed"
+                                    )
+                                
+                                with col4:
+                                    risk_level = "HIGH" if metrics['whale_ratio_10'] > 60 else "MEDIUM" if metrics['whale_ratio_10'] > 30 else "LOW"
+                                    st.metric(
+                                        label="Whale Risk Level", 
+                                        value=risk_level
+                                    )
+                                
+                                # Charts
+                                col_chart1, col_chart2 = st.columns(2)
+                                
+                                with col_chart1:
+                                    whale_chart = create_whale_chart(metrics)
+                                    if whale_chart:
+                                        st.plotly_chart(whale_chart, use_container_width=True)
+                                
+                                with col_chart2:
+                                    pie_chart = create_distribution_pie(metrics)
+                                    if pie_chart:
+                                        st.plotly_chart(pie_chart, use_container_width=True)
+                                
+                                # Top whales table
+                                st.subheader("🏆 Top 10 Whale Holders")
+                                
+                                top_whales_data = []
+                                for i, holder in enumerate(metrics['top_10_holders'], 1):
+                                    balance = float(holder.get('value', 0))
+                                    percentage = (balance / metrics['total_supply']) * 100
+                                    
+                                    top_whales_data.append({
+                                        'Rank': i,
+                                        'Address': holder.get('TokenHolderAddress', '')[:20] + '...',
+                                        'Balance': f"{balance:,.2f}",
+                                        'Percentage': f"{percentage:.2f}%"
+                                    })
+                                
+                                df_whales = pd.DataFrame(top_whales_data)
+                                st.dataframe(df_whales, use_container_width=True, hide_index=True)
+                                
+                                # Risk assessment
+                                st.subheader("📊 Đánh giá rủi ro")
+                                
+                                if metrics['whale_ratio_10'] > 70:
+                                    st.error("**CẢNH BÁO CAO**: Token rất tập trung, top 10 holders nắm giữ hơn 70% supply!")
+                                elif metrics['whale_ratio_10'] > 50:
+                                    st.warning("**CẢNH BÁO**: Token khá tập trung, top 10 holders nắm giữ hơn 50% supply")
+                                elif metrics['whale_ratio_10'] > 30:
+                                    st.info("**TRUNG BÌNH**: Token có mức độ tập trung vừa phải")
+                                else:
+                                    st.success("**TỐT**: Token phân bổ khá đồng đều")
+                                    
+                            else:
+                                st.error("Không thể tính toán metrics từ dữ liệu")
+                        else:
+                            st.error("Không thể lấy dữ liệu holders từ Etherscan. Token có thể không có holders hoặc API limit.")
+                    else:
+                        st.error("Không thể lấy total supply từ Etherscan. Token address có thể không phải ERC-20 contract.")
+        
+        # Quick test buttons với các token phổ biến - SỬ DỤNG CALLBACK
+        st.subheader("🚀 Test nhanh với các token phổ biến")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("USDT", use_container_width=True, key="usdt_btn"):
+                set_token_address("0xdAC17F958D2ee523a2206206994597C13D831ec7")
+        
+        with col2:
+            if st.button("USDC", use_container_width=True, key="usdc_btn"):
+                set_token_address("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")
+        
+        with col3:
+            if st.button("UNI", use_container_width=True, key="uni_btn"):
+                set_token_address("0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984")
+        
+        with col4:
+            if st.button("SHIB", use_container_width=True, key="shib_btn"):
+                set_token_address("0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE")
+        
+        # Hiển thị token address hiện tại
+        st.info(f"🔍 Token address hiện tại: `{st.session_state.whale_token_address}`")
+        
+        # Hướng dẫn sử dụng
+        with st.expander("ℹ️ Hướng dẫn sử dụng Etherscan API"):
+            st.markdown("""
+            **Cách sử dụng:**
+            1. Nhập địa chỉ token Ethereum cần phân tích (bắt đầu bằng 0x)
+            2. Click "Analyze Whale Ratio" hoặc chọn token test nhanh
+            3. Xem kết quả phân tích
+            
+            **Cần có Etherscan API Key:**
+            - Đăng ký miễn phí tại: https://etherscan.io/register
+            - Lấy API Key tại: https://etherscan.io/myapikey
+            - Thêm vào Streamlit secrets với key: `ETHERSCAN_API_KEY`
+            
+            **Chỉ số quan trọng:**
+            - **Top 10 Whale Ratio**: % supply mà top 10 holders nắm giữ
+            - **Gini Coefficient**: Độ tập trung (0 = hoàn toàn phân tán, 1 = hoàn toàn tập trung)
+            - **Total Holders**: Tổng số địa chỉ nắm giữ token
+            
+            **Lưu ý:**
+            - Etherscan có rate limits (5 calls/sec cho free tier)
+            - Một số token mới có thể chưa có đủ dữ liệu
+            - Dùng nút **Debug** để kiểm tra API
+            """)
+    
+    with tab2:
+        st.subheader("Dune Analytics Query")
+        
+        dune_query_id = st.text_input("Enter Dune Query ID:", value="", placeholder="e.g. 1234567", key="dune_query_input")
 
-    dune_query_id = st.text_input("Enter Dune Query ID:", value="", placeholder="e.g. 1234567")
+        if dune_query_id:
+            df_dune = fetch_dune_query_results(int(dune_query_id))
 
-    if dune_query_id:
-        df_dune = fetch_dune_query_results(int(dune_query_id))
+            if df_dune is not None and not df_dune.empty:
+                try:
+                    total_inflow = df_dune['total_inflow'].sum()
+                    top10_inflow = df_dune['top10_inflow'].sum()
+                    whale_ratio = top10_inflow / total_inflow
 
-        if df_dune is not None and not df_dune.empty:
-            try:
-                total_inflow = df_dune['total_inflow'].sum()
-                top10_inflow = df_dune['top10_inflow'].sum()
-                whale_ratio = top10_inflow / total_inflow
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Total Inflow", f"{total_inflow:,.0f}")
+                    c2.metric("Top 10 Inflow", f"{top10_inflow:,.0f}")
+                    c3.metric("Whale Ratio", f"{whale_ratio*100:.2f}%")
 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Total Inflow", f"{total_inflow:,.0f}")
-                c2.metric("Top 10 Inflow", f"{top10_inflow:,.0f}")
-                c3.metric("Whale Ratio", f"{whale_ratio*100:.2f}%")
-
-                st.caption("Whale Ratio = inflow(top 10 wallets) / inflow(total network)")
-            except Exception as e:
-                st.error(f"Error calculating Whale Ratio: {e}")
-        else:
-            st.warning("No data retrieved from Dune query.")
+                    st.caption("Whale Ratio = inflow(top 10 wallets) / inflow(total network)")
+                    
+                    # Hiển thị dữ liệu thô từ Dune
+                    with st.expander("View Dune Data"):
+                        st.dataframe(df_dune)
+                        
+                except Exception as e:
+                    st.error(f"Error calculating Whale Ratio: {e}")
+            else:
+                st.warning("No data retrieved from Dune query.")
 
 else:
     st.info("👈 Please configure the left sidebar to view data.")
+
+# Footer
+st.markdown("---")
+st.markdown("*Dashboard built with Streamlit • Etherscan API • Dune Analytics*")
