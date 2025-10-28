@@ -15,3 +15,5 @@ matplotlib
 seaborn
 anywidget
 requests
+web3
+textblob

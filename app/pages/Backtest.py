@@ -105,11 +105,63 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Header ---
-st.markdown('<div class="header-gradient">🚀 Backtest Pro</div>', unsafe_allow_html=True)
-st.markdown('<div style="text-align: center; color: #8898aa; font-size: 1.2rem; margin-bottom: 3rem;">Professional Multi-Asset Backtesting Platform</div>', unsafe_allow_html=True)
+# --- CÁC HÀM TẢI DỮ LIỆU ĐÃ ĐƯỢC SỬA ---
+def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
+    """Simple data fetcher using multiple exchanges - THAY THẾ BINANCE API"""
+    
+    # Danh sách exchanges ít bị chặn
+    exchanges = [
+        {'name': 'bybit', 'class': ccxt.bybit},
+        {'name': 'okx', 'class': ccxt.okx},
+        {'name': 'kucoin', 'class': ccxt.kucoin},
+        {'name': 'gateio', 'class': ccxt.gateio},
+        {'name': 'htx', 'class': ccxt.htx},
+    ]
+    
+    for exchange_info in exchanges:
+        try:
+            exchange = exchange_info['class']({
+                'timeout': 30000,
+                'enableRateLimit': True,
+            })
+            
+            # Fetch data
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            
+            if ohlcv and len(ohlcv) > 0:
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+                return df
+                
+        except Exception as e:
+            continue
+    
+    # Fallback cuối cùng: Yahoo Finance
+    return get_yahoo_fallback(symbol)
 
-# --- CÁC HÀM TẢI DỮ LIỆU (GIỮ NGUYÊN 100% LOGIC) ---
+def get_yahoo_fallback(symbol):
+    """Fallback to Yahoo Finance"""
+    symbol_map = {
+        'BTC/USDT': 'BTC-USD',
+        'ETH/USDT': 'ETH-USD', 
+        'BNB/USDT': 'BNB-USD',
+        'ADA/USDT': 'ADA-USD',
+        'XRP/USDT': 'XRP-USD',
+        'DOT/USDT': 'DOT-USD',
+        'LINK/USDT': 'LINK-USD',
+        'LTC/USDT': 'LTC-USD',
+        'BCH/USDT': 'BCH-USD',
+        'SOL/USDT': 'SOL-USD'
+    }
+    
+    yahoo_symbol = symbol_map.get(symbol, 'BTC-USD')
+    try:
+        data = yf.download(yahoo_symbol, period='6mo', interval='1h')
+        return data
+    except Exception as e:
+        return None
+
 @st.cache_data(ttl=600)
 def load_crypto_data_advanced(symbol, timeframe, start_date, end_date):
     """
@@ -122,50 +174,61 @@ def load_crypto_data_advanced(symbol, timeframe, start_date, end_date):
             # Đây là contract address, sử dụng API DexScreener
             return load_data_from_dexscreener(symbol, timeframe, start_date, end_date)
         else:
-            # Đây là symbol thông thường, sử dụng CCXT
-            return load_data_from_ccxt(symbol, timeframe, start_date, end_date)
+            # Đây là symbol thông thường, sử dụng CCXT với fallback
+            return load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date)
     except Exception as e:
         st.error(f"Error loading crypto data: {e}")
         return None
 
-def load_data_from_ccxt(symbol, timeframe, start_date, end_date):
-    """Tải dữ liệu từ CCXT cho các cặp giao dịch thông thường"""
+def load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date):
+    """Tải dữ liệu từ CCXT với multiple fallbacks - THAY THẾ BINANCE"""
     try:
-        exchange = ccxt.kucoin()
-        start_datetime = datetime.combine(start_date, datetime.min.time())
-        end_datetime = datetime.combine(end_date, datetime.max.time())
+        # Thử các exchange khác nhau
+        exchanges = [
+            ccxt.kucoin(),
+            ccxt.bybit(),
+            ccxt.okx(),
+            ccxt.gateio()
+        ]
         
-        all_ohlcv = []
-        since = int(start_datetime.timestamp() * 1000)
-        end_ts = int(end_datetime.timestamp() * 1000)
+        for exchange in exchanges:
+            try:
+                start_datetime = datetime.combine(start_date, datetime.min.time())
+                end_datetime = datetime.combine(end_date, datetime.max.time())
+                
+                all_ohlcv = []
+                since = int(start_datetime.timestamp() * 1000)
+                end_ts = int(end_datetime.timestamp() * 1000)
+                
+                while since < end_ts:
+                    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=1000)
+                    if not ohlcv: break
+                    all_ohlcv.extend(ohlcv)
+                    since = ohlcv[-1][0] + 1
+                    time.sleep(0.1)  # Giảm delay để tăng tốc
+                
+                if all_ohlcv: 
+                    data = pd.DataFrame(all_ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                    data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+                    data.set_index('timestamp', inplace=True)
+                    data = data[~data.index.duplicated(keep='first')]
+                    data = data.loc[start_datetime:end_datetime]
+                    
+                    if not data.empty:
+                        # Xóa thông tin múi giờ
+                        if data.index.tz is not None:
+                            data.index = data.index.tz_localize(None)
+                        return data
+                        
+            except Exception as e:
+                continue
         
-        while since < end_ts:
-            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=1000)
-            if not ohlcv: break
-            all_ohlcv.extend(ohlcv)
-            since = ohlcv[-1][0] + 1
-            time.sleep(0.2)
+        # Nếu tất cả exchanges đều fail, dùng fallback đơn giản
+        return get_crypto_data_simple(symbol, timeframe, 1000)
         
-        if not all_ohlcv: 
-            return None
-            
-        data = pd.DataFrame(all_ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-        data.set_index('timestamp', inplace=True)
-        data = data[~data.index.duplicated(keep='first')]
-        data = data.loc[start_datetime:end_datetime]
-        
-        if data.empty: 
-            return None
-            
-        # Xóa thông tin múi giờ
-        if data.index.tz is not None:
-            data.index = data.index.tz_localize(None)
-            
-        return data
     except Exception as e:
-        st.warning(f"CCXT failed for {symbol}: {e}")
-        return None
+        st.warning(f"All CCXT exchanges failed for {symbol}: {e}")
+        return get_crypto_data_simple(symbol, timeframe, 1000)
 
 def load_data_from_dexscreener(contract_address, timeframe, start_date, end_date):
     """Tải dữ liệu từ DexScreener cho các token bằng contract address"""
@@ -273,7 +336,7 @@ def get_historical_from_dexscreener(pair_address, timeframe, start_date, end_dat
 def load_price_data(asset_type, sym, timeframe, start_date, end_date):
     try:
         if asset_type == "Crypto":
-            # Sử dụng hàm crypto nâng cao
+            # Sử dụng hàm crypto nâng cao đã được sửa
             return load_crypto_data_advanced(sym, timeframe, start_date, end_date)
         else:
             # Forex và Stocks (giữ nguyên)
