@@ -1,0 +1,16 @@
+{
+  "bybit_Bybit Paper Trading_1761637630": {
+    "exchange_name": "bybit",
+    "api_key": "alMyRGNyWW44WEthQ0h5SGN0",
+    "api_secret": "TmVBSU9YWlFwbUg4WlRaaE5WR0hXc1NqMVMwTTlXWjBITEVh",
+    "nickname": "Bybit Paper Trading",
+    "trading_mode": "spot",
+    "created_at": "2025-10-28T14:47:10.548917"
+  },
+  "alpaca_My Alpaca Account_1761657667": {
+    "api_key": "UEs0UjZFN0JESjBYVExFVlFKWkU=",
+    "api_secret": "QWp5a0VnSlNDZmdoME1Fb2M1Y0JuRmVIczMwaGRhdXpUaEZ0dWxkNQ==",
+    "nickname": "My Alpaca Account",
+    "created_at": "2025-10-28T20:21:07.901884"
+  }
+}
