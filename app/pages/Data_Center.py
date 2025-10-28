@@ -94,7 +94,63 @@ st.markdown("""
 st.markdown('<div class="header-gradient">🚀 Data Center Pro</div>', unsafe_allow_html=True)
 st.markdown('<div style="text-align: center; color: #8898aa; font-size: 1.2rem; margin-bottom: 3rem;">Professional Market Data Platform</div>', unsafe_allow_html=True)
 
-# --- HÀM TẢI DỮ LIỆU (GIỮ NGUYÊN LOGIC) ---
+# --- HÀM TẢI DỮ LIỆU ĐÃ ĐƯỢC SỬA ---
+def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
+    """Simple data fetcher using multiple exchanges - THAY THẾ BINANCE API"""
+    
+    # Danh sách exchanges ít bị chặn
+    exchanges = [
+        {'name': 'bybit', 'class': ccxt.bybit},
+        {'name': 'okx', 'class': ccxt.okx},
+        {'name': 'kucoin', 'class': ccxt.kucoin},
+        {'name': 'gateio', 'class': ccxt.gateio},
+        {'name': 'htx', 'class': ccxt.htx},
+    ]
+    
+    for exchange_info in exchanges:
+        try:
+            exchange = exchange_info['class']({
+                'timeout': 30000,
+                'enableRateLimit': True,
+            })
+            
+            # Fetch data
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            
+            if ohlcv and len(ohlcv) > 0:
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+                return df
+                
+        except Exception as e:
+            continue
+    
+    # Fallback cuối cùng: Yahoo Finance
+    return get_yahoo_fallback(symbol)
+
+def get_yahoo_fallback(symbol):
+    """Fallback to Yahoo Finance"""
+    symbol_map = {
+        'BTC/USDT': 'BTC-USD',
+        'ETH/USDT': 'ETH-USD', 
+        'BNB/USDT': 'BNB-USD',
+        'ADA/USDT': 'ADA-USD',
+        'XRP/USDT': 'XRP-USD',
+        'DOT/USDT': 'DOT-USD',
+        'LINK/USDT': 'LINK-USD',
+        'LTC/USDT': 'LTC-USD',
+        'BCH/USDT': 'BCH-USD',
+        'SOL/USDT': 'SOL-USD'
+    }
+    
+    yahoo_symbol = symbol_map.get(symbol, 'BTC-USD')
+    try:
+        data = yf.download(yahoo_symbol, period='6mo', interval='1h')
+        return data
+    except Exception as e:
+        return None
+
 @st.cache_data(ttl=300)
 def load_data(asset, sym, timeframe, start_dt, end_dt):
     """
@@ -107,33 +163,17 @@ def load_data(asset, sym, timeframe, start_dt, end_dt):
             end_datetime = pd.to_datetime(end_dt)
 
             if asset == "Crypto":
-                exchange = ccxt.kucoin()
-                if not exchange.has['fetchOHLCV']:
-                    st.error(f"Sàn {exchange.id} không hỗ trợ tải dữ liệu OHLCV.")
-                    return None
-                    
-                since = int(start_datetime.timestamp() * 1000)
-                end_ts = int(end_datetime.timestamp() * 1000)
+                # Sử dụng hàm mới với multiple exchanges thay vì chỉ KuCoin
+                df = get_crypto_data_simple(sym, timeframe, 1000)
                 
-                all_ohlcv = []
-                # Dùng vòng lặp để tải toàn bộ lịch sử trong khoảng thời gian
-                while since < end_ts:
-                    ohlcv = exchange.fetch_ohlcv(sym, timeframe, since=since, limit=1000)
-                    if not ohlcv:
-                        break
-                    all_ohlcv.extend(ohlcv)
-                    since = ohlcv[-1][0] + 1 # +1ms để tránh lặp
-                
-                if not all_ohlcv:
+                if df is not None and not df.empty:
+                    # Lọc lại chính xác theo ngày
+                    df = df.loc[start_datetime:end_datetime]
+                    return df
+                else:
                     st.error(f"Không thể tải dữ liệu Crypto cho {sym}.")
                     return None
                     
-                data = pd.DataFrame(all_ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-                data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-                data.set_index('timestamp', inplace=True)
-                # Lọc lại chính xác theo ngày
-                data = data.loc[start_datetime:end_datetime]
-
             else: # Forex và Stocks
                 # yfinance tải trực tiếp bằng start và end, chính xác hơn
                 data = yf.download(sym, start=start_datetime, end=end_datetime, interval=timeframe, progress=False, auto_adjust=True)

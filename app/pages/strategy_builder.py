@@ -276,14 +276,15 @@ class AdvancedStrategyBuilder:
             bb_period = params.get('bb_period', 20)
             bb_std = params.get('bb_std', 2.0)
             bb_data = ta.bbands(data['Close'], length=bb_period, std=bb_std)
-            if bb_data is not None:
-                data[f'BBU_{bb_period}_{bb_std}'] = bb_data[f'BBU_{bb_period}_{bb_std}']
-                data[f'BBL_{bb_period}_{bb_std}'] = bb_data[f'BBL_{bb_period}_{bb_std}']
-                data[f'BBM_{bb_period}_{bb_std}'] = bb_data[f'BBM_{bb_period}_{bb_std}']
+            if bb_data is not None and not bb_data.empty:
+        # SỬA: Dùng tên cột mặc định của pandas_ta
+                data[f'BBU_{bb_period}_{bb_std}'] = bb_data['BBU']
+                data[f'BBL_{bb_period}_{bb_std}'] = bb_data['BBL'] 
+                data[f'BBM_{bb_period}_{bb_std}'] = bb_data['BBM']
                 indicators_dict['BB'] = pd.DataFrame({
-                    'Upper': data[f'BBU_{bb_period}_{bb_std}'],
-                    'Lower': data[f'BBL_{bb_period}_{bb_std}'],
-                    'Middle': data[f'BBM_{bb_period}_{bb_std}']
+                'Upper': bb_data['BBU'],
+                'Lower': bb_data['BBL'],
+                'Middle': bb_data['BBM']
                 })
             
         # RSI

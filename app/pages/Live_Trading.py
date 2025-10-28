@@ -151,6 +151,91 @@ st.markdown("""
 st.markdown('<div class="header-gradient">🚀 Live Trading Pro</div>', unsafe_allow_html=True)
 st.markdown('<div style="text-align: center; color: #8898aa; font-size: 1.2rem; margin-bottom: 3rem;">Professional Algorithmic Trading Platform</div>', unsafe_allow_html=True)
 
+# --- HÀM TẢI DỮ LIỆU ĐÃ ĐƯỢC SỬA ---
+def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
+    """Simple data fetcher using multiple exchanges - THAY THẾ BINANCE API"""
+    
+    # Danh sách exchanges ít bị chặn
+    exchanges = [
+        {'name': 'bybit', 'class': ccxt.bybit},
+        {'name': 'okx', 'class': ccxt.okx},
+        {'name': 'kucoin', 'class': ccxt.kucoin},
+        {'name': 'gateio', 'class': ccxt.gateio},
+        {'name': 'htx', 'class': ccxt.htx},
+    ]
+    
+    for exchange_info in exchanges:
+        try:
+            exchange = exchange_info['class']({
+                'timeout': 30000,
+                'enableRateLimit': True,
+            })
+            
+            # Fetch data
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            
+            if ohlcv and len(ohlcv) > 0:
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+                return df
+                
+        except Exception as e:
+            continue
+    
+    # Fallback cuối cùng: Yahoo Finance
+    return get_yahoo_fallback(symbol)
+
+def get_yahoo_fallback(symbol):
+    """Fallback to Yahoo Finance"""
+    symbol_map = {
+        'BTC/USDT': 'BTC-USD',
+        'ETH/USDT': 'ETH-USD', 
+        'BNB/USDT': 'BNB-USD',
+        'ADA/USDT': 'ADA-USD',
+        'XRP/USDT': 'XRP-USD',
+        'DOT/USDT': 'DOT-USD',
+        'LINK/USDT': 'LINK-USD',
+        'LTC/USDT': 'LTC-USD',
+        'BCH/USDT': 'BCH-USD',
+        'SOL/USDT': 'SOL-USD'
+    }
+    
+    yahoo_symbol = symbol_map.get(symbol, 'BTC-USD')
+    try:
+        data = yf.download(yahoo_symbol, period='6mo', interval='1h')
+        return data
+    except Exception as e:
+        return None
+
+@st.cache_data(ttl=300)
+def load_data_for_live(symbol, asset_type):
+    try:
+        if asset_type == "Crypto":
+            # Sử dụng hàm mới với multiple exchanges
+            df = get_crypto_data_simple(symbol, '1d', 60)
+            
+            if df is not None and not df.empty:
+                return df
+            else:
+                # Fallback to yfinance
+                formatted_symbol = f"{symbol.replace('USD', '')}-USD"
+                data = yf.download(formatted_symbol, period="60d", interval='1d', progress=False, auto_adjust=True)
+                if data.empty:
+                    # Thử định dạng khác
+                    data = yf.download(symbol, period="60d", interval='1d', progress=False, auto_adjust=True)
+                return data
+        else:
+            data = yf.download(symbol, period="2y", interval='1d', progress=False, auto_adjust=True)
+        
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
+        data.columns = [str(col).capitalize() for col in data.columns]
+        return data
+    except Exception as e:
+        st.error(f"Lỗi tải dữ liệu cho {symbol}: {e}")
+        return None
+
 # --- Lớp AlpacaTrader ---
 class AlpacaTrader:
     def __init__(self, api_key, api_secret, paper=True):
@@ -582,27 +667,6 @@ class SocialSentimentAnalyzer:
         return result
 
 # --- Các hàm hỗ trợ ---
-@st.cache_data(ttl=300)
-def load_data_for_live(symbol, asset_type):
-    try:
-        if asset_type == "Crypto":
-            # Sử dụng yfinance cho crypto
-            formatted_symbol = f"{symbol.replace('USD', '')}-USD"
-            data = yf.download(formatted_symbol, period="60d", interval='1d', progress=False, auto_adjust=True)
-            if data.empty:
-                # Thử định dạng khác
-                data = yf.download(symbol, period="60d", interval='1d', progress=False, auto_adjust=True)
-        else:
-            data = yf.download(symbol, period="2y", interval='1d', progress=False, auto_adjust=True)
-        
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-        data.columns = [str(col).capitalize() for col in data.columns]
-        return data
-    except Exception as e:
-        st.error(f"Lỗi tải dữ liệu cho {symbol}: {e}")
-        return None
-
 @st.cache_resource
 def train_model_on_the_fly(data):
     if data is None or len(data) < 100:

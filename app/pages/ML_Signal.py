@@ -180,6 +180,63 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- HÀM TẢI DỮ LIỆU ĐÃ ĐƯỢC SỬA ---
+def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
+    """Simple data fetcher using multiple exchanges - THAY THẾ BINANCE API"""
+    
+    # Danh sách exchanges ít bị chặn
+    exchanges = [
+        {'name': 'bybit', 'class': ccxt.bybit},
+        {'name': 'okx', 'class': ccxt.okx},
+        {'name': 'kucoin', 'class': ccxt.kucoin},
+        {'name': 'gateio', 'class': ccxt.gateio},
+        {'name': 'htx', 'class': ccxt.htx},
+    ]
+    
+    for exchange_info in exchanges:
+        try:
+            exchange = exchange_info['class']({
+                'timeout': 30000,
+                'enableRateLimit': True,
+            })
+            
+            # Fetch data
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            
+            if ohlcv and len(ohlcv) > 0:
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+                return df
+                
+        except Exception as e:
+            continue
+    
+    # Fallback cuối cùng: Yahoo Finance
+    return get_yahoo_fallback(symbol)
+
+def get_yahoo_fallback(symbol):
+    """Fallback to Yahoo Finance"""
+    symbol_map = {
+        'BTC/USDT': 'BTC-USD',
+        'ETH/USDT': 'ETH-USD', 
+        'BNB/USDT': 'BNB-USD',
+        'ADA/USDT': 'ADA-USD',
+        'XRP/USDT': 'XRP-USD',
+        'DOT/USDT': 'DOT-USD',
+        'LINK/USDT': 'LINK-USD',
+        'LTC/USDT': 'LTC-USD',
+        'BCH/USDT': 'BCH-USD',
+        'SOL/USDT': 'SOL-USD'
+    }
+    
+    yahoo_symbol = symbol_map.get(symbol, 'BTC-USD')
+    try:
+        data = yf.download(yahoo_symbol, period='6mo', interval='1d')
+        return data
+    except Exception as e:
+        return None
+
 # --- Sidebar ---
 st.sidebar.markdown("""
 <div style='text-align: center; padding: 1rem;'>
@@ -266,13 +323,29 @@ def get_market_scan_list(asset_class):
 def load_data_for_signal(asset, sym, timeframe, start, end):
     try:
         if asset == "Crypto":
-            exchange = ccxt.binance()
-            since = int(datetime.combine(start, datetime.min.time()).timestamp() * 1000)
-            ohlcv = exchange.fetch_ohlcv(sym, timeframe, since=since, limit=2000)
-            data = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-            data.set_index('timestamp', inplace=True)
-            data = data[data.index <= pd.to_datetime(end)]
+            # Sử dụng hàm mới với multiple exchanges thay vì chỉ Binance
+            df = get_crypto_data_simple(sym, timeframe, 2000)
+            
+            if df is not None and not df.empty:
+                # Lọc theo ngày
+                start_dt = pd.to_datetime(start)
+                end_dt = pd.to_datetime(end)
+                df = df.loc[start_dt:end_dt]
+                return df
+            else:
+                # Fallback to yfinance
+                symbol_map = {
+                    'BTC/USDT': 'BTC-USD',
+                    'ETH/USDT': 'ETH-USD',
+                    'SOL/USDT': 'SOL-USD',
+                    'XRP/USDT': 'XRP-USD',
+                    'DOGE/USDT': 'DOGE-USD'
+                }
+                yahoo_symbol = symbol_map.get(sym, sym.replace('/USDT', '-USD'))
+                data = yf.download(yahoo_symbol, start=start, end=end, interval='1d', progress=False, auto_adjust=True)
+                if data.empty:
+                    data = yf.download(sym, start=start, end=end, interval='1d', progress=False, auto_adjust=True)
+                return data
         else:
             yf_timeframe_map = {"1w": "1wk"}
             interval = yf_timeframe_map.get(timeframe, timeframe)
