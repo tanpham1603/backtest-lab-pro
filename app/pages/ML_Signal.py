@@ -26,13 +26,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS tùy chỉnh ---
+# --- MINIMAL CSS STYLING ---
 st.markdown("""
 <style>
     .main {
         background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
     }
-    .welcome-header {
+    .header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -48,135 +48,75 @@ st.markdown("""
         margin-bottom: 3rem;
         font-weight: 300;
     }
-    .feature-card {
+    .card {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(10px);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 2rem;
-        height: 280px;
+        border-radius: 15px;
+        padding: 1.5rem;
         transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
     }
-    .feature-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-        transition: 0.5s;
-    }
-    .feature-card:hover::before {
-        left: 100%;
-    }
-    .feature-card:hover {
-        transform: translateY(-10px);
+    .card:hover {
+        transform: translateY(-5px);
         border-color: #667eea;
-        box-shadow: 0 15px 35px rgba(102, 126, 234, 0.2);
+        box-shadow: 0 10px 25px rgba(102, 126, 234, 0.15);
     }
-    .feature-icon {
-        font-size: 3rem;
-        margin-bottom: 1rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    .feature-title {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: white;
-        margin-bottom: 1rem;
-    }
-    .feature-desc {
-        color: #8898aa;
-        line-height: 1.6;
-        font-size: 0.95rem;
-    }
-    .status-card {
+    .metric-card {
         background: rgba(255, 255, 255, 0.05);
         border-radius: 15px;
         padding: 1.5rem;
         border: 1px solid rgba(255, 255, 255, 0.1);
         text-align: center;
     }
-    .status-icon {
-        font-size: 2.5rem;
-        margin-bottom: 0.5rem;
-    }
-    .metric-value {
+    .section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
         font-size: 1.8rem;
         font-weight: 700;
-        color: white;
-        margin: 0.5rem 0;
-    }
-    .metric-label {
-        color: #8898aa;
-        font-size: 0.9rem;
+        margin: 2rem 0 1rem 0;
+        padding: 1rem 0;
+        border-bottom: 2px solid rgba(102, 126, 234, 0.3);
     }
     .divider {
         height: 2px;
         background: linear-gradient(90deg, transparent, #667eea, transparent);
-        margin: 3rem 0;
+        margin: 2rem 0;
         border: none;
     }
     .config-section {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(10px);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 2rem;
-        margin: 1rem 0;
-    }
-    .config-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin-bottom: 1.5rem;
-    }
-    .signal-buy {
-        background: linear-gradient(135deg, #00b09b, #96c93d);
-        padding: 2rem;
-        border-radius: 20px;
-        color: white;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .signal-sell {
-        background: linear-gradient(135deg, #ff416c, #ff4b2b);
-        padding: 2rem;
-        border-radius: 20px;
-        color: white;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .signal-hold {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        padding: 2rem;
-        border-radius: 20px;
-        color: white;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    .analysis-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 15px;
-        padding: 1.5rem;
+        padding: 2rem;
         margin: 1rem 0;
     }
-    .feature-importance {
+    .success-card {
+        background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        color: white;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .warning-card {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        color: white;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .param-container {
         background: rgba(255, 255, 255, 0.08);
         border-radius: 10px;
         padding: 1rem;
         margin: 0.5rem 0;
         border-left: 4px solid #667eea;
     }
+    .profit { color: #00d4aa; font-weight: bold; }
+    .loss { color: #ff6b6b; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -184,7 +124,6 @@ st.markdown("""
 def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
     """Simple data fetcher using multiple exchanges - THAY THẾ BINANCE API"""
     
-    # Danh sách exchanges ít bị chặn
     exchanges = [
         {'name': 'bybit', 'class': ccxt.bybit},
         {'name': 'okx', 'class': ccxt.okx},
@@ -200,7 +139,6 @@ def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
                 'enableRateLimit': True,
             })
             
-            # Fetch data
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
             
             if ohlcv and len(ohlcv) > 0:
@@ -212,7 +150,6 @@ def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
         except Exception as e:
             continue
     
-    # Fallback cuối cùng: Yahoo Finance
     return get_yahoo_fallback(symbol)
 
 def get_yahoo_fallback(symbol):
@@ -247,10 +184,9 @@ st.sidebar.markdown("""
 """, unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-st.sidebar.success("✨ Select analysis mode to begin")
 
 # --- Header ---
-st.markdown('<div class="welcome-header">🚀 ML Signal Pro</div>', unsafe_allow_html=True)
+st.markdown('<div class="header">🚀 ML Signal Pro</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Advanced AI-Powered Trading Signal Platform</div>', unsafe_allow_html=True)
 
 # --- Status Cards ---
@@ -258,37 +194,37 @@ col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.markdown("""
-    <div class="status-card">
-        <div class="status-icon">🤖</div>
-        <div class="metric-value">Active</div>
-        <div class="metric-label">AI Engine</div>
+    <div class="metric-card">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🤖</div>
+        <div style="font-size: 1.8rem; font-weight: 700; color: white; margin: 0.5rem 0;">Active</div>
+        <div style="color: #8898aa; font-size: 0.9rem;">AI Engine</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col2:
     st.markdown("""
-    <div class="status-card">
-        <div class="status-icon">📊</div>
-        <div class="metric-value">Live</div>
-        <div class="metric-label">Data Feed</div>
+    <div class="metric-card">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📊</div>
+        <div style="font-size: 1.8rem; font-weight: 700; color: white; margin: 0.5rem 0;">Live</div>
+        <div style="color: #8898aa; font-size: 0.9rem;">Data Feed</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
     st.markdown("""
-    <div class="status-card">
-        <div class="status-icon">⚡</div>
-        <div class="metric-value">Ready</div>
-        <div class="metric-label">Analysis</div>
+    <div class="metric-card">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⚡</div>
+        <div style="font-size: 1.8rem; font-weight: 700; color: white; margin: 0.5rem 0;">Ready</div>
+        <div style="color: #8898aa; font-size: 0.9rem;">Analysis</div>
     </div>
     """, unsafe_allow_html=True)
 
 with col4:
     st.markdown("""
-    <div class="status-card">
-        <div class="status-icon">🎯</div>
-        <div class="metric-value">Pro</div>
-        <div class="metric-label">Signals</div>
+    <div class="metric-card">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎯</div>
+        <div style="font-size: 1.8rem; font-weight: 700; color: white; margin: 0.5rem 0;">Pro</div>
+        <div style="color: #8898aa; font-size: 0.9rem;">Signals</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -323,17 +259,14 @@ def get_market_scan_list(asset_class):
 def load_data_for_signal(asset, sym, timeframe, start, end):
     try:
         if asset == "Crypto":
-            # Sử dụng hàm mới với multiple exchanges thay vì chỉ Binance
             df = get_crypto_data_simple(sym, timeframe, 2000)
             
             if df is not None and not df.empty:
-                # Lọc theo ngày
                 start_dt = pd.to_datetime(start)
                 end_dt = pd.to_datetime(end)
                 df = df.loc[start_dt:end_dt]
                 return df
             else:
-                # Fallback to yfinance
                 symbol_map = {
                     'BTC/USDT': 'BTC-USD',
                     'ETH/USDT': 'ETH-USD',
@@ -688,11 +621,11 @@ def get_technical_analysis_data(data):
         }
 
 # --- CONFIGURATION SECTION ---
-st.markdown("## ⚙️ ANALYSIS CONFIGURATION")
+st.markdown('<div class="section">⚙️ ANALYSIS CONFIGURATION</div>', unsafe_allow_html=True)
 
 # Section 1: Basic Configuration
-st.markdown('<div class="config-section">', unsafe_allow_html=True)
-st.markdown('<div class="config-header">📊 BASIC CONFIGURATION</div>', unsafe_allow_html=True)
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('**📊 BASIC CONFIGURATION**')
 
 col_basic1, col_basic2, col_basic3 = st.columns(3)
 
@@ -712,8 +645,8 @@ with col_basic3:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Section 2: ML Configuration
-st.markdown('<div class="config-section">', unsafe_allow_html=True)
-st.markdown('<div class="config-header">🧠 MACHINE LEARNING CONFIGURATION</div>', unsafe_allow_html=True)
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('**🧠 MACHINE LEARNING CONFIGURATION**')
 
 col_ml1, col_ml2, col_ml3 = st.columns(3)
 
@@ -730,8 +663,8 @@ with col_ml3:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Section 3: Time Range
-st.markdown('<div class="config-section">', unsafe_allow_html=True)
-st.markdown('<div class="config-header">📅 ANALYSIS TIME RANGE</div>', unsafe_allow_html=True)
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('**📅 ANALYSIS TIME RANGE**')
 
 col_time1, col_time2, col_time3 = st.columns([2, 1, 1])
 
@@ -777,8 +710,8 @@ if 'current_analysis' not in st.session_state:
     st.session_state.current_analysis = None
 
 if run_button or st.session_state.current_analysis or st.session_state.scan_results:
-    st.markdown("---")
-    st.markdown("## 📈 ANALYSIS RESULTS")
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown('<div class="section">📈 ANALYSIS RESULTS</div>', unsafe_allow_html=True)
 
 if scan_mode == "Single Signal":
     if run_button:
@@ -825,9 +758,9 @@ if scan_mode == "Single Signal":
         
         with col1:
             if signal == "BUY":
-                st.markdown('<div class="signal-buy"><h3>🎯 BUY SIGNAL</h3></div>', unsafe_allow_html=True)
+                st.markdown('<div class="success-card"><h3>🎯 BUY SIGNAL</h3></div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="signal-sell"><h3>🎯 SELL SIGNAL</h3></div>', unsafe_allow_html=True)
+                st.markdown('<div class="warning-card"><h3>🎯 SELL SIGNAL</h3></div>', unsafe_allow_html=True)
             
             st.metric("Confidence", f"{confidence*100:.1f}%")
             st.metric("Signal Strength", analysis.get('signal_strength', 'N/A'))
@@ -849,7 +782,7 @@ if scan_mode == "Single Signal":
             top_features = analysis.get('top_features', [])
             if top_features:
                 for feature, importance in top_features:
-                    st.markdown(f'<div class="feature-importance">{feature}: {importance:.3f}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="param-container">{feature}: {importance:.3f}</div>', unsafe_allow_html=True)
             else:
                 st.info("No feature importance data")
         
@@ -1105,7 +1038,7 @@ elif scan_mode == "Market Scan":
         )
 
 # Footer
-st.markdown("---")
+st.markdown('<hr class="divider">', unsafe_allow_html=True)
 st.markdown("### 📊 System Statistics")
 if st.session_state.model_performance:
     perf_df = pd.DataFrame(st.session_state.model_performance)

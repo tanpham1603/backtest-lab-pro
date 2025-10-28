@@ -19,13 +19,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Custom CSS ---
+# --- MINIMAL CSS STYLING ---
 st.markdown("""
 <style>
     .main {
         background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
     }
-    .header-gradient {
+    .header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -34,33 +34,18 @@ st.markdown("""
         text-align: center;
         margin-bottom: 1rem;
     }
-    .feature-card {
+    .card {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(10px);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 2rem;
+        border-radius: 15px;
+        padding: 1.5rem;
         transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
     }
-    .feature-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-        transition: 0.5s;
-    }
-    .feature-card:hover::before {
-        left: 100%;
-    }
-    .feature-card:hover {
+    .card:hover {
         transform: translateY(-5px);
         border-color: #667eea;
-        box-shadow: 0 10px 25px rgba(102, 126, 234, 0.2);
+        box-shadow: 0 10px 25px rgba(102, 126, 234, 0.15);
     }
     .metric-card {
         background: rgba(255, 255, 255, 0.05);
@@ -69,22 +54,15 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1);
         text-align: center;
     }
-    .feature-icon {
-        font-size: 2.5rem;
-        margin-bottom: 1rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
+    .section {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-    }
-    .metric-value {
         font-size: 1.8rem;
         font-weight: 700;
-        color: white;
-        margin: 0.5rem 0;
-    }
-    .metric-label {
-        color: #8898aa;
-        font-size: 0.9rem;
+        margin: 2rem 0 1rem 0;
+        padding: 1rem 0;
+        border-bottom: 2px solid rgba(102, 126, 234, 0.3);
     }
     .divider {
         height: 2px;
@@ -92,16 +70,13 @@ st.markdown("""
         margin: 2rem 0;
         border: none;
     }
-    .badge {
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        margin-right: 0.5rem;
+    .param-container {
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        border-left: 4px solid #667eea;
     }
-    .badge-crypto { background: linear-gradient(135deg, #f7931a, #ffc46c); color: black; }
-    .badge-forex { background: linear-gradient(135deg, #007bff, #6cb2ff); color: white; }
-    .badge-stock { background: linear-gradient(135deg, #28a745, #7ae582); color: white; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -109,7 +84,6 @@ st.markdown("""
 def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
     """Simple data fetcher using multiple exchanges - THAY THẾ BINANCE API"""
     
-    # Danh sách exchanges ít bị chặn
     exchanges = [
         {'name': 'bybit', 'class': ccxt.bybit},
         {'name': 'okx', 'class': ccxt.okx},
@@ -125,7 +99,6 @@ def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
                 'enableRateLimit': True,
             })
             
-            # Fetch data
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
             
             if ohlcv and len(ohlcv) > 0:
@@ -137,7 +110,6 @@ def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
         except Exception as e:
             continue
     
-    # Fallback cuối cùng: Yahoo Finance
     return get_yahoo_fallback(symbol)
 
 def get_yahoo_fallback(symbol):
@@ -169,12 +141,9 @@ def load_crypto_data_advanced(symbol, timeframe, start_date, end_date):
     Hỗ trợ cả symbol (BTC/USDT) và contract address
     """
     try:
-        # Kiểm tra nếu là contract address
         if symbol.startswith('0x') and len(symbol) == 42:
-            # Đây là contract address, sử dụng API DexScreener
             return load_data_from_dexscreener(symbol, timeframe, start_date, end_date)
         else:
-            # Đây là symbol thông thường, sử dụng CCXT với fallback
             return load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date)
     except Exception as e:
         st.error(f"Error loading crypto data: {e}")
@@ -183,7 +152,6 @@ def load_crypto_data_advanced(symbol, timeframe, start_date, end_date):
 def load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date):
     """Tải dữ liệu từ CCXT với multiple fallbacks - THAY THẾ BINANCE"""
     try:
-        # Thử các exchange khác nhau
         exchanges = [
             ccxt.kucoin(),
             ccxt.bybit(),
@@ -205,7 +173,7 @@ def load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date):
                     if not ohlcv: break
                     all_ohlcv.extend(ohlcv)
                     since = ohlcv[-1][0] + 1
-                    time.sleep(0.1)  # Giảm delay để tăng tốc
+                    time.sleep(0.1)
                 
                 if all_ohlcv: 
                     data = pd.DataFrame(all_ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
@@ -215,7 +183,6 @@ def load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date):
                     data = data.loc[start_datetime:end_datetime]
                     
                     if not data.empty:
-                        # Xóa thông tin múi giờ
                         if data.index.tz is not None:
                             data.index = data.index.tz_localize(None)
                         return data
@@ -223,7 +190,6 @@ def load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date):
             except Exception as e:
                 continue
         
-        # Nếu tất cả exchanges đều fail, dùng fallback đơn giản
         return get_crypto_data_simple(symbol, timeframe, 1000)
         
     except Exception as e:
@@ -233,7 +199,6 @@ def load_data_from_ccxt_improved(symbol, timeframe, start_date, end_date):
 def load_data_from_dexscreener(contract_address, timeframe, start_date, end_date):
     """Tải dữ liệu từ DexScreener cho các token bằng contract address"""
     try:
-        # Lấy thông tin pair từ DexScreener
         url = f"https://api.dexscreener.com/latest/dex/search/?q={contract_address}"
         response = requests.get(url, timeout=15)
         
@@ -245,7 +210,6 @@ def load_data_from_dexscreener(contract_address, timeframe, start_date, end_date
         if 'pairs' not in data or not data['pairs']:
             return None
             
-        # Chọn pair có liquidity cao nhất
         valid_pairs = [
             p for p in data['pairs']
             if float(p.get('priceUsd', 0)) > 0
@@ -261,7 +225,6 @@ def load_data_from_dexscreener(contract_address, timeframe, start_date, end_date
         if not pair_address:
             return None
             
-        # Lấy dữ liệu lịch sử từ DexScreener
         return get_historical_from_dexscreener(pair_address, timeframe, start_date, end_date)
         
     except Exception as e:
@@ -271,31 +234,24 @@ def load_data_from_dexscreener(contract_address, timeframe, start_date, end_date
 def get_historical_from_dexscreener(pair_address, timeframe, start_date, end_date):
     """Lấy dữ liệu lịch sử từ DexScreener"""
     try:
-        # DexScreener không cung cấp API lịch sử trực tiếp, nên chúng ta sẽ tạo dữ liệu mô phỏng
-        # dựa trên thông tin hiện tại (đây là giải pháp tạm thời)
-        
         days = (end_date - start_date).days
         if days <= 0:
             days = 30
             
-        # Tạo dữ liệu mô phỏng với biến động thực tế
         dates = pd.date_range(start=start_date, end=end_date, freq='D')
         
         if len(dates) == 0:
             return None
             
-        # Base price ngẫu nhiên nhưng hợp lý cho crypto
         base_price = np.random.uniform(0.0001, 1000)
         prices = []
         current_price = base_price
         
         for i in range(len(dates)):
-            # Biến động giá mô phỏng thị trường crypto
-            volatility = np.random.normal(0, 0.05)  # 5% daily volatility
+            volatility = np.random.normal(0, 0.05)
             current_price = max(0.000001, current_price * (1 + volatility))
             prices.append(current_price)
         
-        # Tạo DataFrame
         data = pd.DataFrame({
             'Open': prices,
             'High': [p * (1 + abs(np.random.normal(0, 0.02))) for p in prices],
@@ -304,7 +260,6 @@ def get_historical_from_dexscreener(pair_address, timeframe, start_date, end_dat
             'Volume': [abs(np.random.normal(1000000, 500000)) for _ in prices]
         }, index=dates)
         
-        # Resample theo timeframe
         timeframe_map = {
             '1d': 'D',
             '4h': '4H',
@@ -336,10 +291,8 @@ def get_historical_from_dexscreener(pair_address, timeframe, start_date, end_dat
 def load_price_data(asset_type, sym, timeframe, start_date, end_date):
     try:
         if asset_type == "Crypto":
-            # Sử dụng hàm crypto nâng cao đã được sửa
             return load_crypto_data_advanced(sym, timeframe, start_date, end_date)
         else:
-            # Forex và Stocks (giữ nguyên)
             start_datetime = datetime.combine(start_date, datetime.min.time())
             end_datetime = datetime.combine(end_date, datetime.max.time())
 
@@ -353,7 +306,6 @@ def load_price_data(asset_type, sym, timeframe, start_date, end_date):
 
             if data.empty: return None
             
-            # SỬA LỖI: Thêm dòng này để xóa thông tin múi giờ
             if data.index.tz is not None:
                 data.index = data.index.tz_localize(None)
             return data
@@ -367,9 +319,8 @@ def display_backtest_summary(stats, asset_type, symbol, start_date, end_date, pa
     Hiển thị hộp tóm tắt kết quả backtest với UI mới
     """
     with st.container():
-        st.markdown("### 📊 Backtest Results")
+        st.markdown('<div class="section">📊 Backtest Results</div>', unsafe_allow_html=True)
         
-        # Asset info row
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"**Asset:** {asset_type}")
@@ -380,17 +331,15 @@ def display_backtest_summary(stats, asset_type, symbol, start_date, end_date, pa
             
         st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-        # Metrics row
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Return", f"{stats.get('Total Return [%]', 0):.2f}%")
         col2.metric("Win Rate", f"{stats.get('Win Rate [%]', 0):.2f}%")
         col3.metric("Sharpe Ratio", f"{stats.get('Sharpe Ratio', 0):.2f}")
         col4.metric("Max Drawdown", f"{stats.get('Max Drawdown [%]', 0):.2f}%")
         
-        # Strategy parameters if available
         if params:
             st.markdown('<hr class="divider">', unsafe_allow_html=True)
-            st.markdown("##### Strategy Parameters")
+            st.markdown("**Strategy Parameters**")
             p1, p2, p3, p4 = st.columns(4)
             p1.metric("Fast MA", f"{params.get('Fast MA')}")
             p2.metric("Slow MA", f"{params.get('Slow MA')}")
@@ -410,13 +359,7 @@ run_ml_backtest = st.session_state.get('run_ml_backtest', False)
 # CHẾ ĐỘ 1: KIỂM CHỨNG CHIẾN LƯỢC ML (CẬP NHẬT UI)
 # ==============================================================================
 if run_ml_backtest:
-    st.markdown("""
-    <div class="feature-card">
-        <div class="feature-icon">🧠</div>
-        <h3>ML Strategy Validation</h3>
-        <p style="color: #8898aa;">Testing machine learning trading strategies with historical data</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="header">🧠 ML Strategy Validation</div>', unsafe_allow_html=True)
     
     info = st.session_state.get('ml_signal_info')
     
@@ -428,7 +371,6 @@ if run_ml_backtest:
         start_date_bt = info['start_date']
         end_date_bt = info['end_date']
         
-        # Hiển thị thông tin ML trong expander
         with st.expander("⚙️ ML Backtest Configuration", expanded=False):
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -452,7 +394,6 @@ if run_ml_backtest:
             if full_data is not None and not full_data.empty:
                 df = full_data.copy()
                 
-                # Tạo lại chính xác các đặc trưng như lúc huấn luyện (LOGIC GIỮ NGUYÊN)
                 df.ta.rsi(length=14, append=True)
                 df.ta.sma(length=50, append=True)
                 df.ta.sma(length=200, append=True)
@@ -470,19 +411,17 @@ if run_ml_backtest:
                     pf = vbt.Portfolio.from_signals(df['Close'], entries, exits, fees=0.001, freq=tf.upper().replace('M','T'))
                     stats = pf.stats()
                     
-                    # Hiển thị kết quả với UI mới
                     display_backtest_summary(stats, asset, symbol, start_date_bt, end_date_bt)
 
                     st.markdown('<hr class="divider">', unsafe_allow_html=True)
                     
-                    # Charts and Analysis
                     plot_col, stats_col = st.columns([2, 1])
                     with plot_col:
-                        st.markdown("##### 📈 Equity Curve")
+                        st.markdown("**📈 Equity Curve**")
                         fig = pf.plot()
                         st.plotly_chart(fig, use_container_width=True)
                     with stats_col:
-                        st.markdown("##### 📋 Performance Metrics")
+                        st.markdown("**📋 Performance Metrics**")
                         stats_display = stats.astype(str)
                         st.dataframe(stats_display, use_container_width=True)
                 else:
@@ -503,76 +442,76 @@ if run_ml_backtest:
 # CHẾ ĐỘ 2: BACKTEST CỔ ĐIỂN (CẬP NHẬT UI)
 # ==============================================================================
 else:
+    st.markdown('<div class="header">🚀 Backtest Pro</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align: center; color: #8898aa; font-size: 1.2rem; margin-bottom: 2rem;">Professional Multi-Asset Backtesting Platform</div>', unsafe_allow_html=True)
+
     # Welcome Section
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.markdown("""
-        <div class="feature-card">
-            <div class="feature-icon">📊</div>
-            <h3>Multi-Asset Backtesting</h3>
+        <div class="card">
+            <h3>📊 Multi-Asset Backtesting</h3>
             <p style="color: #8898aa;">Test trading strategies across Crypto, Forex, and Stocks with advanced analytics</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
         st.markdown("""
-        <div class="feature-card">
-            <div class="feature-icon">🚀</div>
-            <h3>Quick Start</h3>
+        <div class="card">
+            <h3>🚀 Quick Start</h3>
             <p style="color: #8898aa;">Configure your strategy below and run comprehensive backtests</p>
         </div>
         """, unsafe_allow_html=True)
 
     # Configuration Section
-    with st.container():
-        st.markdown("### ⚙️ Backtest Configuration")
+    st.markdown('<div class="section">⚙️ Backtest Configuration</div>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Asset & Symbol**")
+        asset = st.selectbox(
+            "Asset Type", 
+            ["Crypto", "Forex", "Stocks"],
+            format_func=lambda x: f"{ASSET_ICONS.get(x, '📊')} {x}"
+        )
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("##### Asset & Symbol")
-            asset = st.selectbox(
-                "Asset Type", 
-                ["Crypto", "Forex", "Stocks"],
-                format_func=lambda x: f"{ASSET_ICONS.get(x, '📊')} {x}"
-            )
+        if asset == "Crypto":
+            symbol = st.text_input("Trading Pair or Contract Address", "BTC/USDT", 
+                                   placeholder="BTC/USDT, ETH/USDT, or 0x...")
+            tf = st.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=4)
             
-            if asset == "Crypto":
-                symbol = st.text_input("Trading Pair or Contract Address", "BTC/USDT", 
-                                       placeholder="BTC/USDT, ETH/USDT, or 0x...")
-                tf = st.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=4)
-                
-                if symbol.startswith('0x') and len(symbol) == 42:
-                    st.info("🔍 **Contract Address Detected**: Using DexScreener API")
-                else:
-                    st.info("💱 **Trading Pair**: Using CCXT for major exchanges")
-                    
+            if symbol.startswith('0x') and len(symbol) == 42:
+                st.info("🔍 **Contract Address Detected**: Using DexScreener API")
             else:
-                default_symbol = "AAPL" if asset == "Stocks" else "EURUSD=X"
-                symbol = st.text_input("Symbol", default_symbol, placeholder="AAPL, TSLA, EURUSD=X, ...")
-                tf = st.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=6)
+                st.info("💱 **Trading Pair**: Using CCXT for major exchanges")
+                
+        else:
+            default_symbol = "AAPL" if asset == "Stocks" else "EURUSD=X"
+            symbol = st.text_input("Symbol", default_symbol, placeholder="AAPL, TSLA, EURUSD=X, ...")
+            tf = st.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"], index=6)
 
-        with col2:
-            st.markdown("##### Time Period")
-            end_date = st.date_input("End Date", value=datetime.now())
-            start_date = st.date_input("Start Date", value=end_date - timedelta(days=365))
-            
-            st.markdown("##### Strategy Settings")
-            initial_cash = st.number_input("Initial Capital ($)", min_value=100, value=10000, step=1000)
-            
-            col_sl, col_tp = st.columns(2)
-            with col_sl:
-                sl_pct = st.slider("Stop Loss (%)", 0.5, 20.0, 2.0, 0.5)
-            with col_tp:
-                tp_pct = st.slider("Take Profit (%)", 0.5, 50.0, 4.0, 0.5)
+    with col2:
+        st.markdown("**Time Period**")
+        end_date = st.date_input("End Date", value=datetime.now())
+        start_date = st.date_input("Start Date", value=end_date - timedelta(days=365))
+        
+        st.markdown("**Strategy Settings**")
+        initial_cash = st.number_input("Initial Capital ($)", min_value=100, value=10000, step=1000)
+        
+        col_sl, col_tp = st.columns(2)
+        with col_sl:
+            sl_pct = st.slider("Stop Loss (%)", 0.5, 20.0, 2.0, 0.5)
+        with col_tp:
+            tp_pct = st.slider("Take Profit (%)", 0.5, 50.0, 4.0, 0.5)
 
-        st.markdown("##### MA Crossover Parameters")
-        col_fast, col_slow = st.columns(2)
-        with col_fast:
-            fast_ma = st.slider("Fast MA Period", 5, 100, 20)
-        with col_slow:
-            slow_ma = st.slider("Slow MA Period", 20, 250, 50)
+    st.markdown("**MA Crossover Parameters**")
+    col_fast, col_slow = st.columns(2)
+    with col_fast:
+        fast_ma = st.slider("Fast MA Period", 5, 100, 20)
+    with col_slow:
+        slow_ma = st.slider("Slow MA Period", 20, 250, 50)
 
     # Run Button
     run_button = st.button("🚀 Run Backtest", type="primary", use_container_width=True)
@@ -584,9 +523,8 @@ else:
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("""
-            <div class="feature-card">
-                <div class="feature-icon">✅</div>
-                <h4>Advanced Features</h4>
+            <div class="card">
+                <h4>✅ Advanced Features</h4>
                 <p style="color: #8898aa; font-size: 0.9rem;">
                 • Any Token Support with contract addresses<br>
                 • Auto-detection for major pairs<br>
@@ -598,9 +536,8 @@ else:
         
         with col2:
             st.markdown("""
-            <div class="feature-card">
-                <div class="feature-icon">💡</div>
-                <h4>Quick Tips</h4>
+            <div class="card">
+                <h4>💡 Quick Tips</h4>
                 <p style="color: #8898aa; font-size: 0.9rem;">
                 • Crypto: Use CCXT format or 0x addresses<br>
                 • Stocks: Yahoo Finance symbols<br>
@@ -612,14 +549,12 @@ else:
 
     # Xử lý chạy backtest
     if run_button:
-        # Validation (LOGIC GIỮ NGUYÊN)
         if start_date >= end_date:
             st.error("❌ Start date must be before end date.")
         elif fast_ma >= slow_ma:
             st.error("❌ Fast MA must be less than Slow MA.")
         else:
             with st.spinner(f"🔄 Running {asset} backtest for {symbol}..."):
-                # Data loading (LOGIC GIỮ NGUYÊN)
                 warmup_candles = slow_ma
                 time_delta_map = {'1m': timedelta(minutes=1), '5m': timedelta(minutes=5), '15m': timedelta(minutes=15), 
                                   '30m': timedelta(minutes=30), '1h': timedelta(hours=1), '4h': timedelta(hours=4), 
@@ -631,7 +566,6 @@ else:
                 full_price_data = load_price_data(asset, symbol, tf, data_start_date, end_date)
                 
                 if full_price_data is not None and not full_price_data.empty:
-                    # Backtest logic (LOGIC GIỮ NGUYÊN)
                     price = full_price_data['Close']
                     fast_ma_series = price.rolling(fast_ma).mean()
                     slow_ma_series = price.rolling(slow_ma).mean()
@@ -654,7 +588,6 @@ else:
                         )
                         stats = portfolio.stats()
                         
-                        # Hiển thị kết quả với UI mới
                         params = {
                             "Fast MA": fast_ma,
                             "Slow MA": slow_ma,
@@ -665,20 +598,19 @@ else:
                         
                         st.markdown('<hr class="divider">', unsafe_allow_html=True)
                         
-                        # Charts and detailed analysis
                         plot_col, stats_col = st.columns([2, 1])
                         
                         with plot_col:
-                            st.markdown("##### 📈 Performance Charts")
+                            st.markdown("**📈 Performance Charts**")
                             fig = portfolio.plot()
                             st.plotly_chart(fig, use_container_width=True)
                         
                         with stats_col:
-                            st.markdown("##### 📊 Detailed Statistics")
+                            st.markdown("**📊 Detailed Statistics**")
                             stats_display = stats.astype(str)
                             st.dataframe(stats_display, use_container_width=True)
                             
-                            st.markdown("##### ⚡ Quick Metrics")
+                            st.markdown("**⚡ Quick Metrics**")
                             q1, q2, q3 = st.columns(3)
                             q1.metric("Total Trades", f"{stats.get('Total Trades', 0)}")
                             q2.metric("Profit Factor", f"{stats.get('Profit Factor', 0):.2f}")

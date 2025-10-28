@@ -8,19 +8,23 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ALPACA IMPORTS
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetPortfolioHistoryRequest
-from alpaca.common.exceptions import APIError
+try:
+    from alpaca.trading.client import TradingClient
+    from alpaca.trading.requests import GetPortfolioHistoryRequest
+    from alpaca.common.exceptions import APIError
+    ALPACA_AVAILABLE = True
+except ImportError:
+    ALPACA_AVAILABLE = False
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="🛡️ Advanced Risk Manager",
+    page_title="🛡️ Advanced Risk Manager Pro",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS STYLING ---
+# --- ENHANCED CSS STYLING ---
 st.markdown("""
 <style>
     .main {
@@ -30,7 +34,7 @@ st.markdown("""
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        font-size: 3rem;
+        font-size: 3.5rem;
         font-weight: 800;
         text-align: center;
         margin-bottom: 0.5rem;
@@ -39,25 +43,12 @@ st.markdown("""
         text-align: center;
         color: #8898aa;
         font-size: 1.3rem;
-        margin-bottom: 2rem;
+        margin-bottom: 3rem;
         font-weight: 300;
-    }
-    .dashboard-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
-        padding: 2rem;
-        transition: all 0.3s ease;
-        height: 100%;
-    }
-    .dashboard-card:hover {
-        transform: translateY(-5px);
-        border-color: #667eea;
-        box-shadow: 0 10px 25px rgba(102, 126, 234, 0.2);
     }
     .metric-card {
         background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
         border-radius: 15px;
         padding: 1.5rem;
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -67,16 +58,10 @@ st.markdown("""
     .metric-card:hover {
         transform: translateY(-3px);
         border-color: #667eea;
-    }
-    .feature-icon {
-        font-size: 2.5rem;
-        margin-bottom: 1rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
     }
     .metric-value {
-        font-size: 2rem;
+        font-size: 1.8rem;
         font-weight: 700;
         color: white;
         margin: 0.5rem 0;
@@ -87,749 +72,831 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 1px;
     }
-    .connection-panel {
+    .section-card {
         background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
         border-radius: 15px;
         padding: 2rem;
+        margin: 1rem 0;
         border: 1px solid rgba(255, 255, 255, 0.1);
-        margin-bottom: 2rem;
+        transition: all 0.3s ease;
     }
-    .tab-container {
-        background: rgba(255, 255, 255, 0.02);
+    .section-card:hover {
+        border-color: #667eea;
+    }
+    .position-card {
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 10px;
+        padding: 1.2rem;
+        margin: 0.5rem 0;
+        border-left: 4px solid #00ff88;
+        transition: all 0.3s ease;
+    }
+    .position-card:hover {
+        background: rgba(255, 255, 255, 0.05);
+        transform: translateX(5px);
+    }
+    .position-card.negative {
+        border-left-color: #ff4444;
+    }
+    .badge {
+        padding: 4px 12px;
         border-radius: 15px;
-        padding: 2rem;
-        margin-top: 1rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-right: 0.5rem;
     }
+    .badge-success { background: linear-gradient(135deg, #00b894, #00a085); color: white; }
+    .badge-danger { background: linear-gradient(135deg, #ff6b6b, #ee5a24); color: white; }
+    .badge-warning { background: linear-gradient(135deg, #f39c12, #e67e22); color: white; }
+    .badge-info { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
+    .badge-secondary { background: rgba(255, 255, 255, 0.1); color: #8898aa; }
     .divider {
         height: 2px;
         background: linear-gradient(90deg, transparent, #667eea, transparent);
         margin: 2rem 0;
         border: none;
     }
-    .badge {
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        margin-right: 0.5rem;
-    }
-    .badge-success { background: linear-gradient(135deg, #00ff88, #00cc6a); color: white; }
-    .badge-warning { background: linear-gradient(135deg, #ffa726, #f57c00); color: white; }
-    .badge-danger { background: linear-gradient(135deg, #ff4444, #cc0000); color: white; }
-    .badge-info { background: linear-gradient(135deg, #29b6f6, #0288d1); color: white; }
-    .risk-indicator {
-        padding: 8px 16px;
-        border-radius: 25px;
-        font-weight: 600;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    .risk-low { background: linear-gradient(135deg, #00ff88, #00cc6a); }
-    .risk-medium { background: linear-gradient(135deg, #ffa726, #f57c00); }
-    .risk-high { background: linear-gradient(135deg, #ff4444, #cc0000); }
-    .position-item {
+    .feature-card {
         background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #00ff88;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 2rem;
+        height: 280px;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
     }
-    .position-item.negative {
-        border-left-color: #ff4444;
+    .feature-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+        transition: 0.5s;
+    }
+    .feature-card:hover::before {
+        left: 100%;
+    }
+    .feature-card:hover {
+        transform: translateY(-10px);
+        border-color: #667eea;
+        box-shadow: 0 15px 35px rgba(102, 126, 234, 0.2);
+    }
+    .feature-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .feature-title {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: white;
+        margin-bottom: 1rem;
+    }
+    .feature-desc {
+        color: #8898aa;
+        line-height: 1.6;
+        font-size: 0.95rem;
+    }
+    .config-section {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 1rem 0;
+    }
+    .success-card {
+        background: linear-gradient(135deg, #00b894 0%, #00a085 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        color: white;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .warning-card {
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        color: white;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .info-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        color: white;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- ALPACA CLIENT CLASS FOR RISK MANAGEMENT ---
+# --- ALPACA CLIENT CLASS - FIXED ATTRIBUTES ---
 class AlpacaRiskClient:
     def __init__(self):
         self.api = None
         self.connected = False
         self.account = None
+        self.positions = []
     
     def connect(self, api_key, api_secret, paper=True):
-        """Connect to Alpaca API with detailed debug"""
         try:
-            # Remove extra whitespace
+            if not ALPACA_AVAILABLE:
+                st.error("❌ Alpaca SDK not available. Please install: pip install alpaca-trade-api")
+                return False
+                
             api_key = api_key.strip()
             api_secret = api_secret.strip()
             
-            # Check API key format
             if paper and not api_key.startswith('PK'):
-                st.error("""
-                ❌ **INVALID API KEY FORMAT**
-                
-                Paper Trading keys must start with **'PK'**
-                
-                📍 **How to get correct keys:**
-                1. Login to [Alpaca Dashboard](https://app.alpaca.markets/)
-                2. Go to **Paper Trading** account
-                3. Click **"Generate API Key"**
-                4. Copy keys starting with **PK...**
-                """)
+                st.error("❌ Paper Trading keys must start with 'PK'")
                 return False
                 
             if not paper and not api_key.startswith('AK'):
-                st.error("""
-                ❌ **INVALID API KEY FORMAT**
-                
-                Live Trading keys must start with **'AK'**
-                """)
+                st.error("❌ Live Trading keys must start with 'AK'")
                 return False
                 
-            # Check secret length
-            if len(api_secret) < 30:
-                st.error("❌ API Secret seems too short. Please check your copy/paste.")
-                return False
-                
-            # Try connection
-            with st.spinner("🔐 Connecting to Alpaca..."):
+            with st.spinner("🔗 Connecting to Alpaca..."):
                 self.api = TradingClient(api_key, api_secret, paper=paper)
                 self.account = self.api.get_account()
+                self.positions = self.api.get_all_positions()
                 self.connected = True
                 
             st.success("✅ Successfully connected to Alpaca!")
             return True
             
         except Exception as e:
-            error_msg = str(e)
-            st.error(f"❌ Connection failed: {error_msg}")
-            
-            if "unauthorized" in error_msg.lower():
-                st.markdown("""
-                ### 🚨 **UNAUTHORIZED ERROR - FIX GUIDE**
-                
-                **1. Check API Key Format:**
-                - Paper Trading: Must start with **`PK`**
-                - Live Trading: Must start with **`AK`**
-                
-                **2. Verify Your Keys:**
-                - Login to [Alpaca Dashboard](https://app.alpaca.markets/)
-                - Navigate to **API Keys** section
-                - Generate NEW keys if needed
-                """)
-            
+            st.error(f"❌ Connection failed: {str(e)}")
             return False
     
     def get_account_info(self):
-        """Get account information with proper error handling"""
         if self.connected and self.account:
-            return {
-                'portfolio_value': float(self.account.portfolio_value),
-                'buying_power': float(self.account.buying_power),
-                'cash': float(self.account.cash),
-                'equity': float(self.account.equity),
-                'currency': self.account.currency,
-                'status': self.account.status,
-                'account_number': self.account.account_number
-            }
+            try:
+                # Safe attribute access với fallback values
+                account_data = {
+                    'portfolio_value': float(getattr(self.account, 'portfolio_value', 0)),
+                    'buying_power': float(getattr(self.account, 'buying_power', 0)),
+                    'cash': float(getattr(self.account, 'cash', 0)),
+                    'equity': float(getattr(self.account, 'equity', 0)),
+                }
+                
+                # Thêm các attributes optional với safe access
+                optional_attrs = [
+                    'day_trading_buying_power', 'regt_buying_power', 
+                    'initial_margin', 'maintenance_margin', 'last_equity',
+                    'long_market_value', 'short_market_value'
+                ]
+                
+                for attr in optional_attrs:
+                    if hasattr(self.account, attr):
+                        try:
+                            account_data[attr] = float(getattr(self.account, attr))
+                        except (ValueError, TypeError):
+                            account_data[attr] = 0.0
+                    else:
+                        account_data[attr] = 0.0
+                
+                return account_data
+                
+            except Exception as e:
+                st.error(f"Error getting account info: {e}")
+                # Return basic info even if there's an error
+                return {
+                    'portfolio_value': float(getattr(self.account, 'portfolio_value', 0)),
+                    'buying_power': float(getattr(self.account, 'buying_power', 0)),
+                    'cash': float(getattr(self.account, 'cash', 0)),
+                    'equity': float(getattr(self.account, 'equity', 0)),
+                }
         return None
     
     def get_positions(self):
-        """Get positions list with unrealized P&L"""
         if self.connected:
             try:
                 positions = self.api.get_all_positions()
-                positions_data = []
-                for position in positions:
-                    positions_data.append({
-                        'symbol': position.symbol,
-                        'qty': float(position.qty),
-                        'market_value': float(position.market_value),
-                        'avg_entry_price': float(position.avg_entry_price),
-                        'current_price': float(position.current_price),
-                        'unrealized_pl': float(position.unrealized_pl),
-                        'unrealized_plpc': float(position.unrealized_plpc),
-                        'side': position.side
-                    })
-                return positions_data
+                formatted_positions = []
+                
+                for pos in positions:
+                    try:
+                        position_data = {
+                            'symbol': getattr(pos, 'symbol', 'Unknown'),
+                            'qty': float(getattr(pos, 'qty', 0)),
+                            'market_value': float(getattr(pos, 'market_value', 0)),
+                            'avg_entry_price': float(getattr(pos, 'avg_entry_price', 0)),
+                            'current_price': float(getattr(pos, 'current_price', 0)),
+                            'unrealized_pl': float(getattr(pos, 'unrealized_pl', 0)),
+                            'unrealized_plpc': float(getattr(pos, 'unrealized_plpc', 0)),
+                            'side': 'LONG' if float(getattr(pos, 'qty', 0)) > 0 else 'SHORT'
+                        }
+                        formatted_positions.append(position_data)
+                    except Exception as e:
+                        st.warning(f"Could not process position: {e}")
+                        continue
+                        
+                return formatted_positions
+                
             except Exception as e:
-                st.error(f"❌ Error getting positions: {e}")
+                st.error(f"Error getting positions: {e}")
                 return []
         return []
-    
-    def get_portfolio_history(self, period="1M"):
-        """Get portfolio history"""
-        if self.connected:
-            try:
-                params = GetPortfolioHistoryRequest(period=period)
-                return self.api.get_portfolio_history(params)
-            except Exception as e:
-                st.error(f"❌ Error getting portfolio history: {e}")
-                return None
-        return None
 
-    def calculate_total_unrealized_pl(self):
-        """Calculate total unrealized P&L from positions"""
-        positions = self.get_positions()
-        if positions:
-            return sum(pos['unrealized_pl'] for pos in positions)
-        return 0.0
-
-# --- ADVANCED RISK MANAGEMENT CLASS ---
+# --- ADVANCED RISK MANAGER CLASS ---
 class AdvancedRiskManager:
-    """Advanced risk management system with multiple methodologies"""
-    
     def __init__(self, initial_capital=100000):
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
+        self.risk_free_rate = 0.02  # 2% risk-free rate
         
-    def calculate_position_size(self, price, stop_loss_price, risk_percent=2):
-        """Calculate position size based on % risk"""
+    def calculate_position_size(self, price, stop_loss_price, risk_percent=2, max_position_percent=10):
+        """Calculate optimal position size with multiple constraints"""
         if price <= stop_loss_price:
-            return 0, 0
-
+            return 0, 0, "Stop loss must be below entry price"
+            
+        # Risk-based position sizing
         risk_per_share = price - stop_loss_price
         risk_amount = self.current_capital * (risk_percent / 100)
+        risk_based_shares = int(risk_amount / risk_per_share)
         
-        position_size = int(risk_amount / risk_per_share)
-        return position_size, risk_amount
+        # Capital-based position sizing
+        max_position_value = self.current_capital * (max_position_percent / 100)
+        capital_based_shares = int(max_position_value / price)
+        
+        # Use the more conservative approach
+        position_size = min(risk_based_shares, capital_based_shares)
+        actual_risk = position_size * risk_per_share
+        
+        if position_size == 0:
+            return 0, 0, "Position size too small - adjust parameters"
+            
+        return position_size, actual_risk, "Optimal position calculated"
     
     def calculate_kelly_criterion(self, win_rate, avg_win, avg_loss):
         """Calculate Kelly Criterion for position sizing"""
-        if avg_loss == 0 or avg_win <= 0:
+        if avg_loss == 0:
             return 0
-            
-        win_loss_ratio = avg_win / abs(avg_loss)
-        kelly_percent = win_rate - ((1 - win_rate) / win_loss_ratio)
-        
-        # Conservative Kelly (half-Kelly)
-        return max(0, min(kelly_percent * 0.5, 0.25))
+        win_ratio = avg_win / abs(avg_loss)
+        kelly_f = (win_rate * win_ratio - (1 - win_rate)) / win_ratio
+        return max(0, min(kelly_f, 0.25))  # Cap at 25% for safety
     
     def simulate_portfolio_monte_carlo(self, expected_return, volatility, days=252, simulations=1000):
-        """Run Monte Carlo simulation for portfolio value with fat tails"""
-        # Student's t-distribution for fat tails (more realistic)
-        t_df = 5  # Degrees of freedom for fat tails
-        daily_returns = stats.t.rvs(t_df, expected_return/days, volatility/np.sqrt(days), (days, simulations))
-        price_paths = np.cumprod(1 + daily_returns, axis=0) * self.initial_capital
-        return price_paths
+        """Enhanced Monte Carlo simulation with multiple distributions"""
+        # Student's t-distribution for fat tails
+        t_df = 5
+        t_returns = stats.t.rvs(t_df, expected_return/days, volatility/np.sqrt(days), (days, simulations))
+        t_paths = np.cumprod(1 + t_returns, axis=0) * self.initial_capital
+        
+        # Normal distribution for comparison
+        normal_returns = np.random.normal(expected_return/days, volatility/np.sqrt(days), (days, simulations))
+        normal_paths = np.cumprod(1 + normal_returns, axis=0) * self.initial_capital
+        
+        return t_paths, normal_paths
     
     def calculate_var(self, returns, confidence_level=0.95):
         """Calculate Value at Risk"""
         if len(returns) == 0:
             return 0
-        var = np.percentile(returns, (1 - confidence_level) * 100)
-        return abs(var)
+        return np.percentile(returns, (1 - confidence_level) * 100)
     
     def calculate_cvar(self, returns, confidence_level=0.95):
-        """Calculate Conditional VaR (Expected Shortfall)"""
+        """Calculate Conditional Value at Risk (Expected Shortfall)"""
         if len(returns) == 0:
             return 0
         var = self.calculate_var(returns, confidence_level)
-        cvar = returns[returns <= -var].mean()
-        return abs(cvar) if not np.isnan(cvar) else 0
+        return np.mean(returns[returns <= var])
+    
+    def calculate_sharpe_ratio(self, returns):
+        """Calculate Sharpe Ratio"""
+        if len(returns) == 0 or np.std(returns) == 0:
+            return 0
+        return (np.mean(returns) - self.risk_free_rate/252) / np.std(returns) * np.sqrt(252)
     
     def calculate_max_drawdown(self, values):
         """Calculate maximum drawdown"""
-        if len(values) == 0:
-            return 0
-            
-        peak = values[0]
-        max_dd = 0
-        
-        for value in values:
-            if value > peak:
-                peak = value
-            dd = (peak - value) / peak
-            if dd > max_dd:
-                max_dd = dd
-                
-        return max_dd * 100
-    
-    def calculate_sharpe_ratio(self, returns, risk_free_rate=0.02):
-        """Calculate Sharpe ratio"""
-        if len(returns) == 0 or np.std(returns) == 0:
-            return 0
-        excess_returns = returns - risk_free_rate/252
-        return np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252)
-    
-    def get_volatility_estimate(self, symbol):
-        """Estimate volatility for symbol"""
-        volatility_map = {
-            'AAPL': 0.25, 'MSFT': 0.22, 'GOOGL': 0.28, 'TSLA': 0.45, 
-            'AMZN': 0.30, 'NVDA': 0.50, 'META': 0.35, 'NFLX': 0.40,
-            'SPY': 0.18, 'QQQ': 0.24, 'IWM': 0.28, 'DIA': 0.20,
-            'BTCUSD': 0.65, 'ETHUSD': 0.70, 'ADAUSD': 0.80, 'DOTUSD': 0.75
-        }
-        return volatility_map.get(symbol, 0.30)
-
-    def get_beta_estimate(self, symbol):
-        """Estimate beta for symbol"""
-        beta_map = {
-            'AAPL': 1.2, 'MSFT': 0.9, 'GOOGL': 1.1, 'TSLA': 2.0,
-            'AMZN': 1.3, 'NVDA': 1.8, 'META': 1.4, 'NFLX': 1.6,
-            'SPY': 1.0, 'QQQ': 1.05, 'IWM': 1.1, 'DIA': 0.95,
-            'BTCUSD': 1.5, 'ETHUSD': 1.6, 'ADAUSD': 1.8, 'DOTUSD': 1.7
-        }
-        return beta_map.get(symbol, 1.0)
-
-    def get_live_portfolio_returns(self, alpaca_client, days=252):
-        """Get actual returns data from Alpaca portfolio history"""
-        try:
-            portfolio_history = alpaca_client.get_portfolio_history(period="1M")
-            if portfolio_history and hasattr(portfolio_history, 'equity'):
-                equity = portfolio_history.equity
-                if equity and len(equity) > 1:
-                    # Calculate returns from equity curve
-                    returns = np.diff(equity) / equity[:-1]
-                    return returns
-            return None
-        except Exception as e:
-            st.error(f"Error getting portfolio returns: {e}")
-            return None
-
-    def calculate_live_portfolio_metrics(self, alpaca_client):
-        """Calculate risk metrics from actual data"""
-        try:
-            returns = self.get_live_portfolio_returns(alpaca_client)
-            if returns is not None and len(returns) > 0:
-                metrics = {
-                    'volatility': np.std(returns) * np.sqrt(252) * 100,
-                    'sharpe_ratio': self.calculate_sharpe_ratio(returns),
-                    'max_drawdown': self.calculate_max_drawdown(returns),
-                    'var_95': self.calculate_var(returns) * 100,
-                    'cvar_95': self.calculate_cvar(returns) * 100,
-                    'total_return': (returns[-1] - returns[0]) / returns[0] * 100 if len(returns) > 1 else 0
-                }
-                return metrics
-            return None
-        except Exception as e:
-            st.error(f"Error calculating portfolio metrics: {e}")
-            return None
+        peak = np.maximum.accumulate(values)
+        drawdown = (values - peak) / peak
+        return np.min(drawdown)
 
 # --- HELPER FUNCTIONS ---
 def display_position(position):
-    """Display individual position with proper formatting"""
+    """Display position card with enhanced styling"""
     symbol = position['symbol']
     qty = position['qty']
     market_value = position['market_value']
     unrealized_pl = position['unrealized_pl']
     pl_percent = position['unrealized_plpc'] * 100
+    side = position.get('side', 'LONG')
     
     pl_class = "" if unrealized_pl >= 0 else "negative"
     pl_color = "#00ff88" if unrealized_pl >= 0 else "#ff4444"
+    side_badge = "badge-success" if side == 'LONG' else "badge-warning"
     
     st.markdown(f"""
-    <div class="position-item {pl_class}">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>{symbol}</strong>
-                <span class="badge {'badge-success' if unrealized_pl >= 0 else 'badge-danger'}">{qty:.0f} shares</span>
-            </div>
-            <div style="text-align: right;">
-                <div style="color: {pl_color}; font-weight: bold;">
-                    ${unrealized_pl:+.2f} ({pl_percent:+.1f}%)
+    <div class="position-card {pl_class}">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div style="flex: 1;">
+                <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+                    <strong style="font-size: 1.1rem;">{symbol}</strong>
+                    <span class="badge {side_badge}" style="margin-left: 0.5rem;">{side}</span>
+                    <span class="badge badge-secondary">{qty:.0f} shares</span>
                 </div>
-                <div style="font-size: 0.8em; color: #8898aa;">
-                    Value: ${market_value:,.2f}
+                <div style="color: #8898aa; font-size: 0.9rem;">
+                    Value: ${market_value:,.2f} • Avg: ${position['avg_entry_price']:.2f}
+                </div>
+            </div>
+            <div style="text-align: right; min-width: 120px;">
+                <div style="color: {pl_color}; font-weight: bold; font-size: 1rem;">
+                    ${unrealized_pl:+.2f}
+                </div>
+                <div style="color: {pl_color}; font-size: 0.9rem;">
+                    {pl_percent:+.1f}%
                 </div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-def get_sample_portfolio_data():
-    """Return sample portfolio data"""
-    portfolio_data = {
-        'Symbol': ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'AMZN', 'NVDA', 'META', 'NFLX'],
-        'Position_Value': [25000, 20000, 15000, 18000, 12000, 8000, 10000, 7000],
-        'Volatility': [0.25, 0.22, 0.28, 0.45, 0.30, 0.50, 0.35, 0.40],
-        'Beta': [1.2, 0.9, 1.1, 2.0, 1.3, 1.8, 1.4, 1.6],
-        'Quantity': [100, 80, 50, 60, 40, 30, 45, 35],
-        'Avg_Price': [150.0, 250.0, 150.0, 300.0, 120.0, 266.67, 222.22, 200.0],
-        'Current_Price': [155.0, 255.0, 155.0, 310.0, 125.0, 275.0, 230.0, 210.0],
-        'Unrealized_PL': [500.0, 400.0, 250.0, 600.0, 200.0, 250.0, 350.0, 350.0],
-        'PL_Percent': [2.0, 2.0, 1.67, 3.33, 1.67, 3.13, 3.5, 5.0]
-    }
-    return pd.DataFrame(portfolio_data)
+def create_performance_chart(portfolio_values, benchmark_values=None):
+    """Create performance comparison chart"""
+    fig = go.Figure()
+    
+    # Portfolio line
+    fig.add_trace(go.Scatter(
+        x=list(range(len(portfolio_values))),
+        y=portfolio_values,
+        name='Portfolio',
+        line=dict(color='#00ff88', width=3),
+        fill='tozeroy',
+        fillcolor='rgba(0, 255, 136, 0.1)'
+    ))
+    
+    # Benchmark line (if provided)
+    if benchmark_values is not None and len(benchmark_values) == len(portfolio_values):
+        fig.add_trace(go.Scatter(
+            x=list(range(len(benchmark_values))),
+            y=benchmark_values,
+            name='Benchmark',
+            line=dict(color='#667eea', width=2, dash='dash'),
+            opacity=0.7
+        ))
+    
+    fig.update_layout(
+        title="Portfolio Performance",
+        template="plotly_dark",
+        height=400,
+        xaxis_title="Time Period",
+        yaxis_title="Portfolio Value ($)",
+        hovermode='x unified'
+    )
+    
+    return fig
 
 # --- MAIN STREAMLIT INTERFACE ---
 def main():
-    # --- HEADER ---
-    st.markdown('<div class="main-header">🛡️ Advanced Risk Management System</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Professional Risk Analysis with Alpaca Integration</div>', unsafe_allow_html=True)
-
-    # --- CONNECTION PANEL ON MAIN SCREEN ---
-    col1, col2 = st.columns([2, 1])
-
+    # Initialize session state
+    if 'alpaca_risk_client' not in st.session_state:
+        st.session_state.alpaca_risk_client = AlpacaRiskClient()
+    
+    if 'risk_manager' not in st.session_state:
+        st.session_state.risk_manager = AdvancedRiskManager()
+    
+    # Header Section
+    st.markdown('<div class="main-header">🛡️ Advanced Risk Manager Pro</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Professional Portfolio Risk Analysis & Management</div>', unsafe_allow_html=True)
+    
+    # Status Cards
+    col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
         st.markdown("""
-        <div class="connection-panel">
-            <h3>🔌 API Configuration</h3>
+        <div class="metric-card">
+            <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📊</div>
+            <div class="metric-value">Real-Time</div>
+            <div class="metric-label">Portfolio Analysis</div>
         </div>
         """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="metric-card">
+            <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⚡</div>
+            <div class="metric-value">Advanced</div>
+            <div class="metric-label">Risk Metrics</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class="metric-card">
+            <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎯</div>
+            <div class="metric-value">Smart</div>
+            <div class="metric-label">Position Sizing</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown("""
+        <div class="metric-card">
+            <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🛡️</div>
+            <div class="metric-value">Pro</div>
+            <div class="metric-label">Protection</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    
+    # Connection Section
+    st.markdown('<div class="config-section">', unsafe_allow_html=True)
+    st.markdown('### 🔌 Connect to Alpaca')
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        account_type = st.radio("Account Type:", ["Paper Trading", "Live Trading"], 
+                               horizontal=True, key="account_type")
+        api_key = st.text_input("API Key", type="password", 
+                               placeholder="Enter your API key (starts with PK for paper)",
+                               key="api_key")
+        api_secret = st.text_input("API Secret", type="password", 
+                                  placeholder="Enter your API secret",
+                                  key="api_secret")
         
-        # Initialize session state for Alpaca client
-        if 'alpaca_risk_client' not in st.session_state:
-            st.session_state.alpaca_risk_client = AlpacaRiskClient()
-        
-        account_type = st.radio("Account Type:", ["Paper Trading", "Live Trading"], horizontal=True, key="risk_account_type")
-        api_key = st.text_input("API Key", type="password", key="risk_api_key", placeholder="PK... for Paper Trading")
-        api_secret = st.text_input("API Secret", type="password", key="risk_api_secret", placeholder="64-character secret key")
-        
-        col_connect, col_disconnect = st.columns(2)
+        col_connect, col_disconnect, col_refresh = st.columns(3)
         
         with col_connect:
             if st.button("🚀 Connect", use_container_width=True, type="primary"):
                 if api_key and api_secret:
-                    with st.spinner("Connecting to Alpaca..."):
-                        if st.session_state.alpaca_risk_client.connect(
-                            api_key.strip(), 
-                            api_secret.strip(), 
-                            paper=(account_type == "Paper Trading")
-                        ):
-                            st.rerun()
+                    if st.session_state.alpaca_risk_client.connect(
+                        api_key, api_secret, paper=(account_type == "Paper Trading")):
+                        st.rerun()
                 else:
-                    st.warning("Please enter API Key and Secret")
+                    st.warning("Please enter both API credentials")
         
         with col_disconnect:
             if st.button("🔌 Disconnect", use_container_width=True):
                 st.session_state.alpaca_risk_client = AlpacaRiskClient()
                 st.rerun()
-
+        
+        with col_refresh:
+            if st.button("🔄 Refresh", use_container_width=True):
+                st.rerun()
+    
     with col2:
         st.markdown("""
-        <div class="dashboard-card">
+        <div class="section-card">
             <h4>📋 Quick Guide</h4>
-            <p><strong>1. Get API Keys:</strong><br>app.alpaca.markets</p>
-            <p><strong>2. Paper Trading:</strong><br>Use PK... keys</p>
-            <p><strong>3. Risk Analysis:</strong><br>Real-time monitoring</p>
+            <p><strong>Paper Trading:</strong> Use PK... keys</p>
+            <p><strong>Live Trading:</strong> Use AK... keys</p>
+            <p><strong>Get Keys:</strong> alpaca.markets</p>
+            <p><strong>Features:</strong> Real-time risk analysis</p>
         </div>
         """, unsafe_allow_html=True)
-
-    # Display connection status
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Main Content - Only show when connected
     if st.session_state.alpaca_risk_client.connected:
         try:
-            account_info = st.session_state.alpaca_risk_client.get_account_info()
+            trader = st.session_state.alpaca_risk_client
+            risk_manager = st.session_state.risk_manager
+            
+            # Get account data
+            account_info = trader.get_account_info()
+            positions = trader.get_positions()
+            
             if account_info:
-                st.success(f"✅ Connected to {account_type}")
+                # Portfolio Overview
+                st.markdown("### 📊 Portfolio Overview")
                 
-                # Calculate total unrealized P&L from positions
-                total_unrealized_pl = st.session_state.alpaca_risk_client.calculate_total_unrealized_pl()
-                
-                # Portfolio Overview Metrics
-                st.markdown("---")
-                st.subheader("📊 Portfolio Overview")
+                total_unrealized_pl = sum(pos['unrealized_pl'] for pos in positions) if positions else 0
+                total_market_value = sum(pos['market_value'] for pos in positions) if positions else 0
                 
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
+                    pl_color = "#00ff88" if total_unrealized_pl >= 0 else "#ff4444"
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="feature-icon">💰</div>
-                        <div class="metric-value">${account_info['portfolio_value']:,.0f}</div>
-                        <div class="metric-label">Portfolio Value</div>
+                        <div class="metric-value" style="color: {pl_color}">${total_unrealized_pl:+,.0f}</div>
+                        <div class="metric-label">Total P&L</div>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 with col2:
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="feature-icon">⚡</div>
-                        <div class="metric-value">${account_info['buying_power']:,.0f}</div>
-                        <div class="metric-label">Buying Power</div>
+                        <div class="metric-value">${account_info['portfolio_value']:,.0f}</div>
+                        <div class="metric-label">Portfolio Value</div>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 with col3:
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="feature-icon">💵</div>
+                        <div class="metric-value">${account_info['buying_power']:,.0f}</div>
+                        <div class="metric-label">Buying Power</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col4:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{len(positions)}</div>
+                        <div class="metric-label">Active Positions</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Additional account metrics
+                col5, col6, col7, col8 = st.columns(4)
+                
+                with col5:
+                    st.markdown(f"""
+                    <div class="metric-card">
                         <div class="metric-value">${account_info['cash']:,.0f}</div>
                         <div class="metric-label">Available Cash</div>
                     </div>
                     """, unsafe_allow_html=True)
                 
-                with col4:
-                    pl_color = "#00ff88" if total_unrealized_pl >= 0 else "#ff4444"
+                with col6:
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="feature-icon">📈</div>
-                        <div class="metric-value" style="color: {pl_color}">${total_unrealized_pl:,.0f}</div>
-                        <div class="metric-label">Unrealized P&L</div>
+                        <div class="metric-value">${account_info['equity']:,.0f}</div>
+                        <div class="metric-label">Account Equity</div>
                     </div>
                     """, unsafe_allow_html=True)
+                
+                with col7:
+                    day_trading_bp = account_info.get('day_trading_buying_power', 0)
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">${day_trading_bp:,.0f}</div>
+                        <div class="metric-label">Day Trading BP</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col8:
+                    maintenance_margin = account_info.get('maintenance_margin', 0)
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">${maintenance_margin:,.0f}</div>
+                        <div class="metric-label">Maintenance Margin</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown('<hr class="divider">', unsafe_allow_html=True)
+                
+                # Positions and Risk Analysis
+                tab1, tab2, tab3, tab4 = st.tabs(["📈 Positions", "🎯 Risk Tools", "📊 Analytics", "⚡ Stress Test"])
+                
+                with tab1:
+                    st.markdown("#### 📈 Your Positions")
                     
+                    if positions:
+                        # Sort positions by P&L
+                        profitable = [p for p in positions if p['unrealized_pl'] > 0]
+                        losing = [p for p in positions if p['unrealized_pl'] <= 0]
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if profitable:
+                                st.markdown("**🟢 Profitable Positions**")
+                                for position in sorted(profitable, key=lambda x: x['unrealized_pl'], reverse=True):
+                                    display_position(position)
+                            else:
+                                st.info("No profitable positions")
+                        
+                        with col2:
+                            if losing:
+                                st.markdown("**🔴 Losing Positions**")
+                                for position in sorted(losing, key=lambda x: x['unrealized_pl']):
+                                    display_position(position)
+                            else:
+                                st.info("No losing positions")
+                        
+                        # Position Summary
+                        st.markdown("#### 📋 Position Summary")
+                        summary_cols = st.columns(4)
+                        
+                        with summary_cols[0]:
+                            st.metric("Total Value", f"${total_market_value:,.0f}")
+                        with summary_cols[1]:
+                            st.metric("Total P&L", f"${total_unrealized_pl:+,.0f}")
+                        with summary_cols[2]:
+                            avg_pl_percent = (total_unrealized_pl / total_market_value * 100) if total_market_value > 0 else 0
+                            st.metric("Avg Return", f"{avg_pl_percent:+.1f}%")
+                        with summary_cols[3]:
+                            concentration = (total_market_value / account_info['portfolio_value'] * 100) if account_info['portfolio_value'] > 0 else 0
+                            st.metric("Concentration", f"{concentration:.1f}%")
+                    
+                    else:
+                        st.info("💰 No active positions found")
+                
+                with tab2:
+                    st.markdown("#### 🎯 Advanced Position Sizing")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("##### Risk-Based Sizing")
+                        symbol = st.text_input("Symbol", "AAPL", key="sizing_symbol")
+                        entry_price = st.number_input("Entry Price ($)", 1.0, 10000.0, 150.0, key="entry_price")
+                        stop_loss = st.number_input("Stop Loss ($)", 1.0, 10000.0, 140.0, key="stop_loss")
+                        risk_percent = st.slider("Risk %", 0.1, 10.0, 2.0, 0.1, key="risk_percent")
+                        max_position_percent = st.slider("Max Position %", 1.0, 50.0, 10.0, 0.5, key="max_position_percent")
+                        
+                        if st.button("Calculate Position", key="calc_position"):
+                            position_size, actual_risk, message = risk_manager.calculate_position_size(
+                                entry_price, stop_loss, risk_percent, max_position_percent)
+                            
+                            st.markdown("##### 📊 Results")
+                            st.metric("Position Size", f"{position_size:,} shares")
+                            st.metric("Position Value", f"${position_size * entry_price:,.0f}")
+                            st.metric("Risk Amount", f"${actual_risk:,.0f}")
+                            
+                            if "Optimal" in message:
+                                st.success(message)
+                            else:
+                                st.warning(message)
+                    
+                    with col2:
+                        st.markdown("##### Kelly Criterion")
+                        win_rate = st.slider("Win Rate (%)", 1, 99, 60, key="win_rate") / 100
+                        avg_win = st.number_input("Average Win (%)", 0.1, 100.0, 15.0, key="avg_win") / 100
+                        avg_loss = st.number_input("Average Loss (%)", 0.1, 100.0, 10.0, key="avg_loss") / 100
+                        
+                        kelly_f = risk_manager.calculate_kelly_criterion(win_rate, avg_win, avg_loss)
+                        
+                        st.markdown("##### 🎲 Kelly Results")
+                        st.metric("Kelly Fraction", f"{kelly_f:.1%}")
+                        st.metric("Suggested Position", f"${risk_manager.current_capital * kelly_f:,.0f}")
+                        
+                        if kelly_f > 0.2:
+                            st.warning("High risk - consider using half Kelly")
+                        elif kelly_f > 0.1:
+                            st.info("Moderate risk - standard position")
+                        else:
+                            st.success("Low risk - conservative position")
+                
+                with tab3:
+                    st.markdown("#### 📊 Portfolio Analytics")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("##### Monte Carlo Simulation")
+                        expected_return = st.slider("Expected Return (%)", -20, 50, 12, key="mc_return") / 100
+                        volatility = st.slider("Volatility (%)", 5, 80, 20, key="mc_vol") / 100
+                        
+                        if st.button("Run Simulation", key="run_simulation"):
+                            with st.spinner("Running Monte Carlo simulation..."):
+                                t_paths, normal_paths = risk_manager.simulate_portfolio_monte_carlo(
+                                    expected_return, volatility, 252, 1000)
+                                
+                                # Create comparison chart
+                                fig = go.Figure()
+                                
+                                # Add some sample paths from t-distribution
+                                for i in range(min(20, 1000)):
+                                    fig.add_trace(go.Scatter(
+                                        y=t_paths[:, i],
+                                        mode='lines',
+                                        line=dict(width=1, color='rgba(102, 126, 234, 0.2)'),
+                                        showlegend=False
+                                    ))
+                                
+                                # Add percentiles
+                                percentiles = [5, 25, 50, 75, 95]
+                                for p in percentiles:
+                                    fig.add_trace(go.Scatter(
+                                        y=np.percentile(t_paths, p, axis=1),
+                                        mode='lines',
+                                        line=dict(width=2),
+                                        name=f'{p}th Percentile'
+                                    ))
+                                
+                                fig.update_layout(
+                                    title="Monte Carlo Simulation - Portfolio Paths",
+                                    template="plotly_dark",
+                                    height=400,
+                                    xaxis_title="Trading Days",
+                                    yaxis_title="Portfolio Value ($)"
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("##### Risk Metrics")
+                        
+                        # Simulate some returns for demonstration
+                        returns = np.random.normal(0.001, 0.02, 1000)  # Simulated daily returns
+                        
+                        col_metrics1, col_metrics2 = st.columns(2)
+                        
+                        with col_metrics1:
+                            st.metric("VaR (95%)", f"${risk_manager.calculate_var(returns) * 100000:,.0f}")
+                            st.metric("CVaR (95%)", f"${risk_manager.calculate_cvar(returns) * 100000:,.0f}")
+                            st.metric("Sharpe Ratio", f"{risk_manager.calculate_sharpe_ratio(returns):.2f}")
+                        
+                        with col_metrics2:
+                            st.metric("Max Drawdown", f"{risk_manager.calculate_max_drawdown(np.cumprod(1 + returns) * 100000) * 100:.1f}%")
+                            st.metric("Volatility", f"{np.std(returns) * np.sqrt(252) * 100:.1f}%")
+                            st.metric("Expected Return", f"{np.mean(returns) * 252 * 100:.1f}%")
+                
+                with tab4:
+                    st.markdown("#### ⚡ Portfolio Stress Test")
+                    
+                    if positions:
+                        scenarios = {
+                            "Market Crash (-30%)": 0.7,
+                            "Severe Correction (-20%)": 0.8,
+                            "Moderate Correction (-10%)": 0.9,
+                            "Normal Market (0%)": 1.0,
+                            "Bull Market (+15%)": 1.15,
+                            "Strong Rally (+25%)": 1.25
+                        }
+                        
+                        selected_scenario = st.selectbox("Select Stress Scenario", list(scenarios.keys()))
+                        multiplier = scenarios[selected_scenario]
+                        
+                        current_value = total_market_value
+                        stressed_value = current_value * multiplier
+                        impact = stressed_value - current_value
+                        impact_percent = (impact / current_value) * 100
+                        
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("Current Value", f"${current_value:,.0f}")
+                        with col2:
+                            st.metric("Stressed Value", f"${stressed_value:,.0f}")
+                        with col3:
+                            st.metric("Impact", f"${impact:+,.0f}", f"{impact_percent:+.1f}%")
+                        
+                        # Risk assessment
+                        if impact_percent <= -20:
+                            st.error("🚨 Extreme Risk - Consider reducing exposure")
+                        elif impact_percent <= -10:
+                            st.warning("⚠️ High Risk - Review portfolio allocation")
+                        elif impact_percent <= -5:
+                            st.info("🔶 Moderate Risk - Monitor positions")
+                        else:
+                            st.success("✅ Low Risk - Portfolio appears resilient")
+                    
+                    else:
+                        st.info("No positions available for stress testing")
+            
+            else:
+                st.error("Unable to fetch account information")
+                
         except Exception as e:
-            st.error(f"Error getting account info: {e}")
-
-    # --- MAIN DASHBOARD CONTENT ---
-    if st.session_state.alpaca_risk_client.connected:
-        trader = st.session_state.alpaca_risk_client
-        risk_manager = AdvancedRiskManager(100000)  # Default capital
-        
-        # Refresh Button
-        if st.button("🔄 Refresh Data"):
-            st.rerun()
-
-        # --- PORTFOLIO POSITIONS ---
-        st.markdown("---")
-        st.subheader("📈 Portfolio Positions")
-        
-        positions = trader.get_positions()
-        if positions:
-            # Display positions in a nice layout
-            col1, col2 = st.columns(2)
-            
-            profitable_positions = [p for p in positions if p['unrealized_pl'] > 0]
-            losing_positions = [p for p in positions if p['unrealized_pl'] <= 0]
-            
-            with col1:
-                if profitable_positions:
-                    st.markdown("#### 🟢 Profitable Positions")
-                    for position in profitable_positions:
-                        display_position(position)
-                else:
-                    st.info("No profitable positions")
-            
-            with col2:
-                if losing_positions:
-                    st.markdown("#### 🔴 Losing Positions")
-                    for position in losing_positions:
-                        display_position(position)
-                else:
-                    st.info("No losing positions")
-            
-            # Portfolio statistics
-            total_positions_value = sum(pos['market_value'] for pos in positions)
-            total_unrealized_pl = sum(pos['unrealized_pl'] for pos in positions)
-            
-            col_stat1, col_stat2, col_stat3 = st.columns(3)
-            col_stat1.metric("Total Positions", f"{len(positions)}")
-            col_stat2.metric("Total Value", f"${total_positions_value:,.0f}")
-            col_stat3.metric("Total P&L", f"${total_unrealized_pl:,.2f}")
-            
-        else:
-            st.info("📭 No active positions found in your portfolio")
-
-        # --- ADVANCED FEATURES IN TABS ---
-        st.markdown("---")
-        tab1, tab2, tab3, tab4 = st.tabs(["🎯 Position Sizing", "🎲 Monte Carlo", "⚡ Stress Testing", "📊 Risk Analysis"])
-
-        with tab1:
-            st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
-            st.markdown('#### 🎯 Advanced Position Sizing')
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                symbol = st.text_input("Symbol", "AAPL", key="pos_symbol")
-                entry_price = st.number_input("Entry Price ($)", 0.01, 10000.0, 150.0, 0.01, key="entry_price")
-                stop_loss = st.number_input("Stop Loss ($)", 0.01, 10000.0, 140.0, 0.01, key="stop_loss")
-                risk_percent = st.slider("Risk per Trade (%)", 0.5, 5.0, 2.0, 0.1, key="risk_pct")
-            
-            with col2:
-                position_size, risk_amount = risk_manager.calculate_position_size(
-                    entry_price, stop_loss, risk_percent)
-                
-                st.metric("Position Size", f"{position_size:,} shares")
-                st.metric("Position Value", f"${position_size * entry_price:,.0f}")
-                st.metric("Risk Amount", f"${risk_amount:,.0f}")
-                
-                risk_reward_ratio = (entry_price - stop_loss) / stop_loss
-                st.metric("Risk/Reward", f"{risk_reward_ratio:.2f}:1")
-                
-                # Risk assessment
-                risk_percentage = (risk_amount / 100000) * 100
-                if risk_percentage > 5:
-                    st.error("⚠️ High Risk: Consider reducing position size")
-                elif risk_percentage < 1:
-                    st.success("✅ Conservative Risk: Safe position size")
-                else:
-                    st.warning("📊 Moderate Risk: Appropriate position size")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with tab2:
-            st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
-            st.markdown('#### 🎲 Monte Carlo Simulation')
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                expected_return = st.slider("Expected Return (%)", -20, 50, 12, key="mc_return")
-                volatility = st.slider("Volatility (%)", 5, 80, 20, key="mc_vol")
-                simulations = st.select_slider("Simulations", [100, 500, 1000], 1000, key="mc_sims")
-                
-                if st.button("Run Simulation", key="run_mc"):
-                    with st.spinner("Running Monte Carlo simulation..."):
-                        paths = risk_manager.simulate_portfolio_monte_carlo(
-                            expected_return/100, volatility/100, 252, simulations)
-                        
-                        # Plot results
-                        fig = go.Figure()
-                        for i in range(min(100, simulations)):
-                            fig.add_trace(go.Scatter(
-                                y=paths[:, i], 
-                                mode='lines', 
-                                line=dict(width=1, color='rgba(100,149,237,0.1)'), 
-                                showlegend=False
-                            ))
-                        
-                        # Add percentiles
-                        percentiles = [5, 25, 50, 75, 95]
-                        for p in percentiles:
-                            fig.add_trace(go.Scatter(
-                                y=np.percentile(paths, p, axis=1),
-                                mode='lines',
-                                line=dict(width=2, dash='dash'),
-                                name=f'{p}th Percentile'
-                            ))
-                        
-                        fig.update_layout(
-                            title=f"Monte Carlo Simulation - {simulations} Scenarios",
-                            template="plotly_dark",
-                            height=400,
-                            xaxis_title='Days',
-                            yaxis_title='Portfolio Value ($)'
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                st.info("""
-                **Monte Carlo Simulation**
-                - Models portfolio future values
-                - Uses statistical distributions
-                - Provides probability analysis
-                - Helps understand potential outcomes
-                
-                **Interpretation:**
-                - **50th percentile**: Median expected outcome
-                - **5th-95th percentile**: 90% confidence interval
-                - **Wider bands**: Higher uncertainty
-                """)
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with tab3:
-            st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
-            st.markdown('#### ⚡ Portfolio Stress Testing')
-            
-            if positions:
-                # Stress test scenarios
-                stress_scenarios = {
-                    'Market Crash (-20%)': 0.8,
-                    'Correction (-10%)': 0.9, 
-                    'Normal (0%)': 1.0,
-                    'Rally (+10%)': 1.1,
-                    'Bull Market (+20%)': 1.2
-                }
-                
-                scenario = st.selectbox("Select Scenario", list(stress_scenarios.keys()))
-                multiplier = stress_scenarios[scenario]
-                
-                current_value = sum(pos['market_value'] for pos in positions)
-                stressed_value = current_value * multiplier
-                impact = stressed_value - current_value
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Current Value", f"${current_value:,.0f}")
-                col2.metric("Stressed Value", f"${stressed_value:,.0f}")
-                col3.metric("Impact", f"${impact:,.0f}", f"{(impact/current_value)*100:.1f}%")
-                
-                # Position-level impact
-                st.markdown("##### Position Impact")
-                impact_data = []
-                for pos in positions:
-                    pos_impact = pos['market_value'] * (multiplier - 1)
-                    impact_data.append({
-                        'Symbol': pos['symbol'],
-                        'Current Value': pos['market_value'],
-                        'Impact': pos_impact,
-                        'New Value': pos['market_value'] + pos_impact
-                    })
-                
-                impact_df = pd.DataFrame(impact_data)
-                st.dataframe(impact_df.style.format({
-                    'Current Value': '${:,.2f}',
-                    'Impact': '${:,.2f}',
-                    'New Value': '${:,.2f}'
-                }))
-            else:
-                st.info("No positions available for stress testing")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with tab4:
-            st.markdown('<div class="dashboard-card">', unsafe_allow_html=True)
-            st.markdown('#### 📊 Detailed Risk Analysis')
-            
-            # Calculate basic risk metrics from positions
-            if positions:
-                total_value = sum(pos['market_value'] for pos in positions)
-                
-                # Concentration risk
-                largest_position = max(positions, key=lambda x: x['market_value'])
-                concentration = (largest_position['market_value'] / total_value) * 100
-                
-                # Volatility estimate (weighted average)
-                weighted_vol = sum(pos['market_value'] * risk_manager.get_volatility_estimate(pos['symbol']) 
-                                 for pos in positions) / total_value
-                
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Number of Positions", len(positions))
-                col2.metric("Largest Position", f"{concentration:.1f}%")
-                col3.metric("Est. Volatility", f"{weighted_vol:.1%}")
-                col4.metric("Total Exposure", f"${total_value:,.0f}")
-                
-                # Risk assessment
-                risk_factors = []
-                if concentration > 25:
-                    risk_factors.append("⚠️ High concentration in single position")
-                if len(positions) < 5:
-                    risk_factors.append("⚠️ Low diversification")
-                if weighted_vol > 0.3:
-                    risk_factors.append("⚠️ High portfolio volatility")
-                
-                if risk_factors:
-                    st.warning("#### Risk Factors Identified")
-                    for factor in risk_factors:
-                        st.write(f"- {factor}")
-                else:
-                    st.success("#### ✅ Portfolio appears well diversified")
-            else:
-                st.info("No positions available for risk analysis")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
+            st.error(f"Error in main content: {str(e)}")
+    
     else:
-        # --- WELCOME SCREEN WHEN NOT CONNECTED ---
+        # Welcome Screen
         st.markdown("---")
-        st.subheader("🚀 Get Started with Risk Management")
+        st.markdown("### 🚀 Get Started with Advanced Risk Management")
         
         col1, col2, col3 = st.columns(3)
         
-        with col1:
-            st.markdown("""
-            <div class="dashboard-card">
-                <div class="feature-icon">📈</div>
-                <h3>Portfolio Analysis</h3>
-                <p>Comprehensive risk assessment of your investment portfolio</p>
-            </div>
-            """, unsafe_allow_html=True)
+        features = [
+            ("📊", "Real-Time Analysis", "Live portfolio monitoring with advanced risk metrics and real-time P&L tracking"),
+            ("🎯", "Smart Position Sizing", "Optimal trade sizing using Kelly Criterion and risk-based calculations"),
+            ("⚡", "Advanced Simulations", "Monte Carlo simulations and stress testing for comprehensive risk assessment")
+        ]
         
-        with col2:
-            st.markdown("""
-            <div class="dashboard-card">
-                <div class="feature-icon">🎯</div>
-                <h3>Position Sizing</h3>
-                <p>Advanced algorithms for optimal position sizing</p>
-            </div>
-            """, unsafe_allow_html=True)
+        for i, (icon, title, desc) in enumerate(features):
+            with [col1, col2, col3][i]:
+                st.markdown(f"""
+                <div class="feature-card">
+                    <div class="feature-icon">{icon}</div>
+                    <div class="feature-title">{title}</div>
+                    <div class="feature-desc">{desc}</div>
+                </div>
+                """, unsafe_allow_html=True)
         
-        with col3:
-            st.markdown("""
-            <div class="dashboard-card">
-                <div class="feature-icon">⚡</div>
-                <h3>Stress Testing</h3>
-                <p>Test your portfolio against various market scenarios</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-    # --- FOOTER ---
+        if not ALPACA_AVAILABLE:
+            st.markdown("---")
+            st.warning("""
+            **Alpaca SDK Not Available**
+            
+            To use all features, install the Alpaca SDK:
+            ```bash
+            pip install alpaca-trade-api
+            ```
+            """)
+    
+    # Footer
+    st.markdown("---")
     st.markdown("""
-    <div style='text-align: center; padding: 3rem; color: #8898aa;'>
-        <p style='margin: 0; font-size: 0.9rem;'>Built with Streamlit • Advanced Risk Management Platform</p>
+    <div style='text-align: center; padding: 2rem; color: #8898aa;'>
+        <p style='margin: 0; font-size: 0.9rem;'>Built with ❤️ using Streamlit • Advanced Risk Management Platform</p>
+        <p style='margin: 0.5rem 0 0 0; font-size: 0.8rem; opacity: 0.7;'>Risk Manager Pro v3.0</p>
     </div>
     """, unsafe_allow_html=True)
 
