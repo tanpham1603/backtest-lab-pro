@@ -444,14 +444,14 @@ class AITradingAssistant:
             return {}
         
         try:
-            current_price = data['Close'].iloc[-1]
-            price_5d_ago = data['Close'].iloc[-5] if len(data) >= 5 else current_price
+            current_price = data['Close'].iloc[-1] if 'Close' in data.columns else 0
+            price_5d_ago = data['Close'].iloc[-5] if len(data) >= 5 and 'Close' in data.columns else current_price
             
             return {
-                'sma_20': data['Close'].rolling(20).mean().iloc[-1],
-                'sma_50': data['Close'].rolling(50).mean().iloc[-1],
-                'rsi': ta.rsi(data['Close'], length=14).iloc[-1],
-                'volume_avg': data['Volume'].rolling(20).mean().iloc[-1],
+                'sma_20': data['Close'].rolling(20).mean().iloc[-1] if 'Close' in data.columns else 0,
+                'sma_50': data['Close'].rolling(50).mean().iloc[-1] if 'Close' in data.columns else 0,
+                'rsi': ta.rsi(data['Close'], length=14).iloc[-1] if 'Close' in data.columns else 50,
+                'volume_avg': data['Volume'].rolling(20).mean().iloc[-1] if 'Volume' in data.columns else 0,
                 'current_price': current_price,
                 'price_change': ((current_price - price_5d_ago) / price_5d_ago * 100) if price_5d_ago > 0 else 0
             }
@@ -463,11 +463,11 @@ class AITradingAssistant:
         try:
             # Lấy VIX for market fear/greed
             vix = yf.download('^VIX', period='5d', progress=False, timeout=10)
-            current_vix = vix['Close'].iloc[-1] if len(vix) > 0 else 20
+            current_vix = vix['Close'].iloc[-1] if len(vix) > 0 and 'Close' in vix.columns else 20
             
             # SPY for overall market trend
             spy = yf.download('SPY', period='5d', progress=False, timeout=10)
-            if len(spy) > 1:
+            if len(spy) > 1 and 'Close' in spy.columns:
                 spy_trend = "UP" if spy['Close'].iloc[-1] > spy['Close'].iloc[-2] else "DOWN"
             else:
                 spy_trend = "NEUTRAL"
@@ -547,12 +547,12 @@ class AITradingAssistant:
             return {'sentiment': 'NEUTRAL', 'confidence': 50, 'trend': 'UNKNOWN', 'volume_signal': 'UNKNOWN'}
         
         try:
-            current_price = data['Close'].iloc[-1]
-            sma_20 = data['Close'].rolling(20).mean().iloc[-1]
-            sma_50 = data['Close'].rolling(50).mean().iloc[-1]
+            current_price = data['Close'].iloc[-1] if 'Close' in data.columns else 0
+            sma_20 = data['Close'].rolling(20).mean().iloc[-1] if 'Close' in data.columns else 0
+            sma_50 = data['Close'].rolling(50).mean().iloc[-1] if 'Close' in data.columns else 0
             
             # Trend analysis
-            if pd.isna(sma_20) or pd.isna(sma_50):
+            if pd.isna(sma_20) or pd.isna(sma_50) or sma_20 == 0 or sma_50 == 0:
                 return {'sentiment': 'NEUTRAL', 'confidence': 50, 'trend': 'UNKNOWN', 'volume_signal': 'UNKNOWN'}
                 
             if current_price > sma_20 > sma_50:
@@ -569,8 +569,8 @@ class AITradingAssistant:
                 confidence = 60
             
             # Volume analysis
-            avg_volume = data['Volume'].rolling(20).mean().iloc[-1]
-            current_volume = data['Volume'].iloc[-1]
+            avg_volume = data['Volume'].rolling(20).mean().iloc[-1] if 'Volume' in data.columns else 0
+            current_volume = data['Volume'].iloc[-1] if 'Volume' in data.columns else 0
             
             if pd.isna(avg_volume) or avg_volume == 0:
                 volume_signal = "NORMAL_VOLUME"
@@ -804,24 +804,24 @@ class AITradingAssistant:
     def calculate_support_resistance(self, data):
         """Tính support và resistance levels"""
         if data.empty or len(data) < 20:
-            return {'support': 95, 'resistance': 105, 'current': 100}
+            return {'support': 95.0, 'resistance': 105.0, 'current': 100.0}
         
         try:
-            high_20 = data['High'].rolling(20).max().iloc[-1]
-            low_20 = data['Low'].rolling(20).min().iloc[-1]
-            current_price = data['Close'].iloc[-1]
+            high_20 = data['High'].rolling(20).max().iloc[-1] if 'High' in data.columns else 105
+            low_20 = data['Low'].rolling(20).min().iloc[-1] if 'Low' in data.columns else 95
+            current_price = data['Close'].iloc[-1] if 'Close' in data.columns else 100
             
             # Tính toán support/resistance hợp lý
-            support = low_20 * 0.98  # Support dưới mức thấp 20 ngày
-            resistance = high_20 * 1.02  # Resistance trên mức cao 20 ngày
+            support = float(low_20 * 0.98)  # Support dưới mức thấp 20 ngày
+            resistance = float(high_20 * 1.02)  # Resistance trên mức cao 20 ngày
             
             return {
                 'support': round(support, 2),
                 'resistance': round(resistance, 2),
-                'current': round(current_price, 2)
+                'current': round(float(current_price), 2)
             }
-        except:
-            return {'support': 95, 'resistance': 105, 'current': 100}
+        except Exception as e:
+            return {'support': 95.0, 'resistance': 105.0, 'current': 100.0}
     
     def get_fallback_analysis(self, symbol, error_msg=""):
         """Fallback analysis khi có lỗi với thông tin chi tiết"""
@@ -840,19 +840,19 @@ class AITradingAssistant:
             'trading_recommendation': '🟡 HOLD',
             'risk_assessment': 'MEDIUM',
             'price_targets': {
-                'short_term': 100,
-                'medium_term': 105, 
-                'long_term': 110
+                'short_term': 100.0,
+                'medium_term': 105.0, 
+                'long_term': 110.0
             },
             'time_horizon': 'WAIT',
-            'support_resistance': {'support': 95, 'resistance': 105, 'current': 100},
+            'support_resistance': {'support': 95.0, 'resistance': 105.0, 'current': 100.0},
             'market_context': {
                 'market_condition': 'NEUTRAL',
                 'vix_sentiment': 'NEUTRAL',
                 'market_trend': 'NEUTRAL'
             },
-            'current_price': 100,
-            'price_change': 0
+            'current_price': 100.0,
+            'price_change': 0.0
         }
 
 # UI Implementation cho AI Assistant - FIXED VERSION
@@ -958,16 +958,16 @@ def display_ai_analysis(analysis):
         with col3:
             st.metric("Long Term", f"${analysis['price_targets']['long_term']:.2f}")
     
-    # Support & Resistance - FIXED: Sửa lỗi format string
+    # Support & Resistance - FIXED: Đảm bảo giá trị là số
     st.markdown("#### 📊 Support & Resistance")
     col_sup, col_res = st.columns(2)
     with col_sup:
-        # FIX: Truy cập đúng key trong dictionary
-        support_level = analysis['support_resistance'].get('support', 0)
+        # FIX: Đảm bảo support_level là số
+        support_level = float(analysis['support_resistance'].get('support', 0))
         st.metric("Support Level", f"${support_level:.2f}")
     with col_res:
-        # FIX: Truy cập đúng key trong dictionary
-        resistance_level = analysis['support_resistance'].get('resistance', 0)
+        # FIX: Đảm bảo resistance_level là số
+        resistance_level = float(analysis['support_resistance'].get('resistance', 0))
         st.metric("Resistance Level", f"${resistance_level:.2f}")
     
     # Market Context
@@ -987,6 +987,10 @@ def train_model_on_the_fly(data):
         return None
     
     try:
+        # FIX: Kiểm tra cột tồn tại trước khi sử dụng
+        if 'close' not in data.columns or 'volume' not in data.columns:
+            return None
+            
         data['SMA_20'] = data['close'].rolling(20).mean()
         data['SMA_50'] = data['close'].rolling(50).mean()
         data['RSI'] = ta.rsi(data['close'], length=14)
@@ -1016,6 +1020,10 @@ def get_ml_signal(data, model):
         return "NO_SIGNAL", 0
     
     try:
+        # FIX: Kiểm tra cột tồn tại
+        if 'close' not in data.columns or 'volume' not in data.columns:
+            return "NO_SIGNAL", 0
+            
         latest = data.iloc[-1].copy()
         latest['SMA_20'] = data['close'].rolling(20).mean().iloc[-1]
         latest['SMA_50'] = data['close'].rolling(50).mean().iloc[-1]
@@ -1047,8 +1055,13 @@ def load_stock_data(symbol, period="6mo"):
         data = yf.download(symbol, period=period, progress=False, timeout=15)
         # FIX: Xử lý kết quả trả về từ yfinance
         if isinstance(data, pd.DataFrame) and not data.empty:
-            # FIX: Đảm bảo tên cột là string trước khi chuyển đổi
+            # FIX: Đảm bảo tên cột là string và tồn tại
             data.columns = [str(col).lower() for col in data.columns]
+            # FIX: Đảm bảo các cột cần thiết tồn tại
+            required_columns = ['open', 'high', 'low', 'close', 'volume']
+            for col in required_columns:
+                if col not in data.columns:
+                    data[col] = 0  # Thêm cột mặc định nếu thiếu
             return data
         return None
     except Exception as e:
@@ -1065,6 +1078,11 @@ def load_crypto_data(symbol):
         # FIX: Xử lý kết quả trả về từ yfinance
         if isinstance(data, pd.DataFrame) and not data.empty:
             data.columns = [str(col).lower() for col in data.columns]
+            # FIX: Đảm bảo các cột cần thiết tồn tại
+            required_columns = ['open', 'high', 'low', 'close', 'volume']
+            for col in required_columns:
+                if col not in data.columns:
+                    data[col] = 0  # Thêm cột mặc định nếu thiếu
             return data
         return None
     except Exception as e:
@@ -1078,8 +1096,8 @@ def get_current_price(symbol, asset_type):
         else:
             data = load_crypto_data(symbol)
         
-        if data is not None and not data.empty:
-            return data['close'].iloc[-1]
+        if data is not None and not data.empty and 'close' in data.columns:
+            return float(data['close'].iloc[-1])
         return None
     except Exception as e:
         st.error(f"Error getting current price for {symbol}: {e}")
