@@ -1095,7 +1095,7 @@ if st.session_state.trader and st.session_state.trader.connected:
         except Exception as e:
             st.error(f"Cannot load positions list: {e}")
 
-    # Tab 3: Manual Trading - ĐÃ SỬA LỖI FRACTIONAL ORDERS
+    # Tab 3: Manual Trading - ĐÃ SỬA LỖI STREAMLIT MIXED NUMERIC TYPES
     with tab3:
         st.markdown("""
         <div class="dashboard-card">
@@ -1147,22 +1147,22 @@ if st.session_state.trader and st.session_state.trader.connected:
             </div>
             """, unsafe_allow_html=True)
             
-            # Quantity input với suggestions phù hợp theo asset type
+            # SỬA LỖI: StreamlitMixedNumericTypesError - Đảm bảo tất cả giá trị cùng kiểu
             if asset_type == "Crypto":
                 min_qty = 0.00001
                 step = 0.001
                 format_str = "%.5f"
-                default_qty = 0.01
+                default_qty = float(0.01)  # Đảm bảo là float
             elif asset_type == "Forex":
                 min_qty = 0.01
                 step = 0.01
                 format_str = "%.2f"
-                default_qty = 1.0
+                default_qty = float(1.0)  # Đảm bảo là float
             else:  # Stocks
-                min_qty = 1  # SỬA: Stocks phải là số nguyên
-                step = 1.0
-                format_str = "%d"  # SỬA: Định dạng số nguyên cho stocks
-                default_qty = 1
+                min_qty = 1  # Stocks phải là số nguyên
+                step = 1
+                format_str = "%d"  # Định dạng số nguyên
+                default_qty = int(1)  # Đảm bảo là int
             
             current_qty = st.session_state.selected_position['current_qty'] if st.session_state.selected_position else 0
             
@@ -1171,20 +1171,44 @@ if st.session_state.trader and st.session_state.trader.connected:
                 col_q1, col_q2, col_q3 = st.columns(3)
                 with col_q1:
                     if st.button("25%", use_container_width=True):
-                        st.session_state.suggested_qty = current_qty * 0.25
+                        if asset_type == "Stocks":
+                            st.session_state.suggested_qty = int(current_qty * 0.25)
+                        else:
+                            st.session_state.suggested_qty = current_qty * 0.25
                 with col_q2:
                     if st.button("50%", use_container_width=True):
-                        st.session_state.suggested_qty = current_qty * 0.5
+                        if asset_type == "Stocks":
+                            st.session_state.suggested_qty = int(current_qty * 0.5)
+                        else:
+                            st.session_state.suggested_qty = current_qty * 0.5
                 with col_q3:
                     if st.button("100%", use_container_width=True):
-                        st.session_state.suggested_qty = current_qty
+                        if asset_type == "Stocks":
+                            st.session_state.suggested_qty = int(current_qty)
+                        else:
+                            st.session_state.suggested_qty = current_qty
             
-            qty = st.number_input("Quantity:", 
-                                min_value=min_qty, 
-                                value=st.session_state.get('suggested_qty', suggested_qty), 
-                                step=step, 
-                                format=format_str, 
-                                key="manual_qty")
+            # SỬA LỖI QUAN TRỌNG: Xử lý kiểu dữ liệu phù hợp
+            current_suggested_qty = st.session_state.get('suggested_qty', suggested_qty)
+            
+            if asset_type == "Stocks":
+                # Đảm bảo giá trị là số nguyên cho Stocks
+                if isinstance(current_suggested_qty, float):
+                    current_suggested_qty = int(current_suggested_qty)
+                qty = st.number_input("Quantity:", 
+                                    min_value=min_qty, 
+                                    value=current_suggested_qty, 
+                                    step=step, 
+                                    format=format_str, 
+                                    key="manual_qty")
+            else:
+                # Crypto và Forex dùng số thập phân
+                qty = st.number_input("Quantity:", 
+                                    min_value=min_qty, 
+                                    value=float(current_suggested_qty), 
+                                    step=step, 
+                                    format=format_str, 
+                                    key="manual_qty")
         
         # Hiển thị thông tin thời gian thực
         current_price = None
@@ -1310,7 +1334,7 @@ if st.session_state.trader and st.session_state.trader.connected:
                 st.session_state.suggested_qty = default_qty
                 st.rerun()
 
-    # Tab 4: Automated Trading - ĐÃ SỬA LỖI HIỂN THỊ
+    # Các tab còn lại giữ nguyên
     with tab4:
         st.markdown("""
         <div class="dashboard-card">
@@ -1442,7 +1466,7 @@ if st.session_state.trader and st.session_state.trader.connected:
         else:
             st.info("No trading history available. Start trading to see performance metrics.")
 
-    # Tab 5: Risk Dashboard - ĐÃ SỬA LỖI HIỂN THỊ
+    # Tab 5: Risk Dashboard
     with tab5:
         st.markdown("""
         <div class="dashboard-card">
@@ -1485,7 +1509,7 @@ if st.session_state.trader and st.session_state.trader.connected:
         except Exception as e:
             st.error(f"Error loading risk dashboard: {e}")
 
-    # Tab 6: Performance Analytics - ĐÃ SỬA LỖI HIỂN THỊ
+    # Tab 6: Performance Analytics
     with tab6:
         st.markdown("""
         <div class="dashboard-card">
@@ -1521,7 +1545,7 @@ if st.session_state.trader and st.session_state.trader.connected:
             except Exception as e:
                 st.error(f"Error generating performance report: {e}")
 
-    # Tab 7: Social Sentiment - ĐÃ SỬA LỖI HIỂN THỊ
+    # Tab 7: Social Sentiment
     with tab7:
         st.markdown("""
         <div class="dashboard-card">
