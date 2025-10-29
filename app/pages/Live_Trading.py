@@ -139,6 +139,13 @@ st.markdown("""
         padding: 1rem;
         margin: 1rem 0;
     }
+    .warning-box {
+        background: rgba(255, 193, 7, 0.1);
+        border: 1px solid #ffc107;
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -209,6 +216,7 @@ class AlpacaTradingClient:
         self.base_url = "https://paper-api.alpaca.markets"
         self.headers = {}
         self.last_order_time = {}
+        self.order_history = []
         
     def connect(self, api_key, api_secret):
         try:
@@ -274,7 +282,8 @@ class AlpacaTradingClient:
     def is_crypto_symbol(self, symbol):
         """Check if symbol is a cryptocurrency"""
         crypto_symbols = ['BTC', 'ETH', 'ADA', 'DOGE', 'MATIC', 'SOL', 'DOT', 'AVAX', 'LINK', 'LTC', 'BCH', 'XLM', 'UNI', 'ALGO', 'ETC', 'XRP', 'EOS', 'AAVE', 'MKR', 'COMP', 'YFI', 'SNX', 'UMA', 'ZRX', 'BAT']
-        return any(crypto in symbol.upper() for crypto in crypto_symbols)
+        symbol_clean = symbol.replace('USD', '').replace('/USD', '').replace('-USD', '')
+        return any(crypto in symbol_clean.upper() for crypto in crypto_symbols)
     
     def get_existing_position(self, symbol):
         """Get existing position for a symbol to avoid wash trading"""
@@ -287,33 +296,82 @@ class AlpacaTradingClient:
         except:
             return None
     
-    def place_order(self, symbol, qty, side, order_type="market"):
+    def calculate_max_buyable_quantity(self, symbol, current_price):
+        """Calculate maximum quantity that can be bought based on buying power"""
         try:
-            # Anti-wash trading: Check if we're trying to sell more than we have or buy immediately after selling
-            existing_position = self.get_existing_position(symbol)
+            account_info = self.get_account_info()
+            buying_power = float(account_info.buying_power)
             
-            if side.lower() == "sell":
-                if not existing_position or float(existing_position['qty']) < qty:
-                    st.error(f"Cannot sell {qty} shares of {symbol}. Available: {existing_position['qty'] if existing_position else 0}")
-                    return None
+            if current_price <= 0:
+                return 0
+                
+            # Reserve 2% for fees and price fluctuations
+            available_cash = buying_power * 0.98
+            max_qty = available_cash / current_price
+            
+            return int(max_qty)
+        except:
+            return 0
+    
+    def is_wash_trade(self, symbol, side):
+        """Check if this would be a wash trade"""
+        try:
+            # Get recent order history for this symbol
+            recent_orders = [o for o in self.order_history 
+                           if o['symbol'] == symbol.upper() 
+                           and time.time() - o['timestamp'] < 300]  # 5 minutes
+            
+            if not recent_orders:
+                return False
+                
+            # Check if we're trying to buy after recently selling, or vice versa
+            last_order = recent_orders[-1]
+            if last_order['side'] != side:
+                st.warning(f"⚠️ Wash trade warning: You {last_order['side'].upper()}ed this symbol recently")
+                return True
+                
+            return False
+        except:
+            return False
+    
+    def place_order(self, symbol, qty, side, order_type="market", notional=None):
+        try:
+            # Anti-wash trading: Check recent trades
+            if self.is_wash_trade(symbol, side):
+                st.error("🚫 Order blocked: This would be a wash trade. Wait 5 minutes between buy/sell for the same symbol.")
+                return None
             
             # Rate limiting
             current_time = time.time()
             if symbol in self.last_order_time:
                 time_since_last = current_time - self.last_order_time[symbol]
-                if time_since_last < 2:  # 2 second cooldown per symbol
-                    st.warning(f"Please wait {2 - time_since_last:.1f}s before trading {symbol} again")
+                if time_since_last < 5:  # 5 second cooldown per symbol
+                    st.warning(f"⏳ Please wait {5 - time_since_last:.1f}s before trading {symbol} again")
                     return None
             
             # Different order parameters for crypto vs stocks
             is_crypto = self.is_crypto_symbol(symbol)
             
+            # For crypto, use notional amount instead of quantity
+            if is_crypto and side.lower() == "buy":
+                current_price = get_current_price(symbol, "Crypto")
+                if current_price:
+                    notional_value = float(qty) * current_price
+                    if notional_value < 1.0:  # Alpaca minimum for crypto
+                        st.error(f"🚫 Minimum crypto order is $1.00. Your order: ${notional_value:.2f}")
+                        return None
+            
             order_data = {
                 "symbol": symbol.upper(),
-                "qty": str(int(qty)),
                 "side": side.lower(),
                 "type": order_type.lower(),
             }
+            
+            # Set appropriate parameters based on asset type
+            if is_crypto and side.lower() == "buy" and notional:
+                order_data["notional"] = str(notional)
+            else:
+                order_data["qty"] = str(int(qty))
             
             # Set appropriate time_in_force
             if is_crypto:
@@ -321,14 +379,20 @@ class AlpacaTradingClient:
             else:
                 order_data["time_in_force"] = "day"  # Day for stocks
             
-            # For market orders, add additional parameters to avoid wash trading
-            if order_type.lower() == "market":
-                order_data["client_order_id"] = f"{symbol}_{side}_{int(time.time())}"
+            # Additional parameters to avoid issues
+            order_data["client_order_id"] = f"{symbol}_{side}_{int(time.time())}_{np.random.randint(1000,9999)}"
             
             response = requests.post(f"{self.base_url}/v2/orders", headers=self.headers, json=order_data)
             
             if response.status_code == 200:
                 self.last_order_time[symbol] = current_time
+                # Record this order in history
+                self.order_history.append({
+                    'symbol': symbol.upper(),
+                    'side': side.lower(),
+                    'timestamp': current_time,
+                    'qty': qty
+                })
                 self._update_account_info()
                 order_result = response.json()
                 
@@ -338,7 +402,7 @@ class AlpacaTradingClient:
                     <h4>✅ Order Executed Successfully!</h4>
                     <p><strong>Symbol:</strong> {order_result['symbol']}</p>
                     <p><strong>Side:</strong> {order_result['side'].upper()}</p>
-                    <p><strong>Quantity:</strong> {order_result['qty']}</p>
+                    <p><strong>Quantity:</strong> {order_result.get('qty', order_result.get('notional', 'N/A'))}</p>
                     <p><strong>Type:</strong> {order_result['type']}</p>
                     <p><strong>Status:</strong> {order_result['status']}</p>
                 </div>
@@ -509,10 +573,8 @@ def load_stock_data(symbol, period="6mo"):
 @st.cache_data(ttl=300)
 def load_crypto_data(symbol):
     try:
-        if '/' in symbol:
-            symbol = symbol.replace('/', '-')
-        # Remove -USD suffix if already present to avoid duplication
-        symbol_clean = symbol.replace('-USD', '').replace('/USD', '')
+        # Clean symbol for crypto
+        symbol_clean = symbol.replace('USD', '').replace('/USD', '').replace('-USD', '').replace('/USDT', '').replace('USDT', '')
         data = yf.download(symbol_clean + "-USD", period="6mo", progress=False)
         if not data.empty:
             data.columns = [col.lower() for col in data.columns]
@@ -739,51 +801,111 @@ if st.session_state.trader.connected:
         col_t1, col_t2 = st.columns(2)
         
         with col_t1:
-            asset_type = st.radio("Asset Type", ["Stock", "Crypto"], horizontal=True)
+            asset_type = st.radio("Asset Type", ["Stock", "Crypto"], horizontal=True, key="asset_type")
             symbol = st.text_input("Symbol", value="AAPL" if asset_type == "Stock" else "BTC", key="trading_symbol").upper()
             
             # Show existing position if any
             existing_position = trader.get_existing_position(symbol)
             if existing_position:
-                st.info(f"Existing position: {existing_position['qty']} shares at ${existing_position['avg_entry_price']}")
+                st.info(f"📊 Existing position: {existing_position['qty']} shares at ${existing_position['avg_entry_price']}")
         
         with col_t2:
-            qty = st.number_input("Quantity", min_value=1, value=10, step=1, key="trading_qty")
+            # Different input for crypto vs stocks
+            current_price = get_current_price(symbol, asset_type)
+            
+            if asset_type == "Crypto":
+                # For crypto, use dollar amount instead of quantity
+                st.markdown("**Investment Amount ($)**")
+                notional = st.number_input(
+                    "Amount in USD", 
+                    min_value=1.0, 
+                    value=100.0, 
+                    step=1.0, 
+                    key="crypto_amount",
+                    label_visibility="collapsed"
+                )
+                
+                if current_price:
+                    equivalent_qty = notional / current_price
+                    st.caption(f"≈ {equivalent_qty:.6f} {symbol}")
+                    qty = equivalent_qty
+                else:
+                    qty = 0
+            else:
+                # For stocks, use quantity
+                qty = st.number_input(
+                    "Quantity", 
+                    min_value=1, 
+                    value=10, 
+                    step=1, 
+                    key="stock_qty"
+                )
+                notional = None
             
             # Order type selection
             order_type = st.selectbox("Order Type", ["market", "limit"], key="order_type")
             
-            # Price display
-            current_price = get_current_price(symbol, asset_type)
+            # Price display and validation
             if current_price:
                 st.metric("Current Price", f"${current_price:.2f}")
+                
+                # Calculate order value and validate
+                if asset_type == "Crypto":
+                    order_value = notional
+                else:
+                    order_value = qty * current_price
+                
+                account_info = trader.get_account_info()
+                buying_power = float(account_info.buying_power)
+                
+                if order_value > buying_power:
+                    st.error(f"❌ Insufficient buying power. Required: ${order_value:.2f}, Available: ${buying_power:.2f}")
+                else:
+                    st.success(f"✅ Sufficient buying power: ${buying_power:.2f} available")
         
-        col_buy, col_sell = st.columns(2)
+        col_buy, col_sell, col_info = st.columns([1, 1, 2])
+        
         with col_buy:
             if st.button("🟢 BUY", use_container_width=True, type="primary", key="buy_btn"):
-                if symbol and qty > 0:
-                    result = trader.place_order(symbol, qty, "buy", order_type)
-                    if result:
-                        time.sleep(1)
-                        st.rerun()
+                if symbol and ((asset_type == "Crypto" and notional >= 1.0) or (asset_type == "Stock" and qty > 0)):
+                    # Final validation before order
+                    if asset_type == "Crypto" and notional < 1.0:
+                        st.error("🚫 Minimum crypto order is $1.00")
+                    else:
+                        result = trader.place_order(symbol, qty, "buy", order_type, notional)
+                        if result:
+                            time.sleep(2)
+                            st.rerun()
+                else:
+                    st.error("Please check your order parameters")
         
         with col_sell:
             if st.button("🔴 SELL", use_container_width=True, type="primary", key="sell_btn"):
                 if symbol and qty > 0:
-                    result = trader.place_order(symbol, qty, "sell", order_type)
-                    if result:
-                        time.sleep(1)
-                        st.rerun()
+                    # Check if we have the position to sell
+                    existing_position = trader.get_existing_position(symbol)
+                    if not existing_position:
+                        st.error(f"❌ No position found for {symbol}")
+                    elif float(existing_position['qty']) < qty:
+                        st.error(f"❌ Insufficient shares. You have {existing_position['qty']} shares, trying to sell {qty}")
+                    else:
+                        result = trader.place_order(symbol, qty, "sell", order_type)
+                        if result:
+                            time.sleep(2)
+                            st.rerun()
+                else:
+                    st.error("Please check your order parameters")
         
-        # Trading Tips
-        with st.expander("💡 Trading Tips"):
+        with col_info:
             st.markdown("""
-            - **Crypto Trading**: Uses GTC (Good Till Cancelled) time-in-force
-            - **Stock Trading**: Uses DAY time-in-force  
-            - **Wash Trading Prevention**: System checks existing positions before selling
-            - **Rate Limiting**: 2-second cooldown between trades for the same symbol
-            - **Position Validation**: Cannot sell more shares than you own
-            """)
+            <div class="warning-box">
+                <h4>💡 Trading Rules</h4>
+                <p><strong>Stocks:</strong> Minimum 1 share</p>
+                <p><strong>Crypto:</strong> Minimum $1.00 order</p>
+                <p><strong>Wash Trade Protection:</strong> 5-minute cooldown between buy/sell</p>
+                <p><strong>Rate Limit:</strong> 5 seconds between orders per symbol</p>
+            </div>
+            """, unsafe_allow_html=True)
     
     with tab2:
         st.subheader("Automated Trading")
