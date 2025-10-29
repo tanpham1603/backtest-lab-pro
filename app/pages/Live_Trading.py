@@ -259,7 +259,7 @@ def load_data_for_live(symbol, asset_type):
         st.error(f"Lỗi tải dữ liệu cho {symbol}: {e}")
         return None
 
-# --- Lớp AlpacaTrader ---
+# --- Lớp AlpacaTrader ĐÃ SỬA LỖI FRACTIONAL ORDERS ---
 class AlpacaTrader:
     def __init__(self, api_key, api_secret, paper=True):
         self.api, self.account, self.connected = None, None, False
@@ -293,18 +293,25 @@ class AlpacaTrader:
             
             st.info(f"🔄 Placing {side.upper()} order for {qty} {formatted_symbol}...")
             
+            # SỬA LỖI: Fractional orders must be DAY orders
+            # Xác định xem có phải fractional order không
+            is_fractional = qty != int(qty)
+            
+            # Sử dụng time_in_force phù hợp
+            time_in_force = TimeInForce.DAY if is_fractional else TimeInForce.GTC
+            
             market_order_data = MarketOrderRequest(
                 symbol=formatted_symbol, 
                 qty=qty,
                 side=OrderSide.BUY if side.lower() == 'buy' else OrderSide.SELL,
-                time_in_force=TimeInForce.GTC
+                time_in_force=time_in_force  # SỬA LỖI Ở ĐÂY
             )
             order = self.api.submit_order(order_data=market_order_data)
             st.success(f"✅ Successfully submitted {side.upper()} order for {qty} units of {formatted_symbol}!")
             return order
         except Exception as e:
             st.error(f"❌ Error placing order: {e}")
-            st.error(f"Symbol attempted: {formatted_symbol}, Asset Type: {asset_type}")
+            st.error(f"Symbol attempted: {formatted_symbol}, Asset Type: {asset_type}, Quantity: {qty}")
             return None
 
     def _format_symbol(self, symbol, asset_type):
@@ -906,7 +913,7 @@ if st.session_state.trader and st.session_state.trader.connected:
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    # Tabs với UI/UX đồng bộ
+    # Tabs với UI/UX đồng bộ - ĐÃ SỬA LỖI HIỂN THỊ
     tab_titles = ["📊 Overview", "📈 Positions", "🛠️ Manual Trading", "🤖 Automated Trading", 
                   "📉 Risk Dashboard", "📊 Performance Analytics", "🎭 Social Sentiment"]
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(tab_titles)
@@ -1088,7 +1095,7 @@ if st.session_state.trader and st.session_state.trader.connected:
         except Exception as e:
             st.error(f"Cannot load positions list: {e}")
 
-    # Tab 3: Manual Trading - GIỮ NGUYÊN LOGIC, CHỈ CẬP NHẬT UI
+    # Tab 3: Manual Trading - ĐÃ SỬA LỖI FRACTIONAL ORDERS
     with tab3:
         st.markdown("""
         <div class="dashboard-card">
@@ -1152,10 +1159,10 @@ if st.session_state.trader and st.session_state.trader.connected:
                 format_str = "%.2f"
                 default_qty = 1.0
             else:  # Stocks
-                min_qty = 0.01
+                min_qty = 1  # SỬA: Stocks phải là số nguyên
                 step = 1.0
-                format_str = "%.2f"
-                default_qty = 1.0
+                format_str = "%d"  # SỬA: Định dạng số nguyên cho stocks
+                default_qty = 1
             
             current_qty = st.session_state.selected_position['current_qty'] if st.session_state.selected_position else 0
             
@@ -1303,7 +1310,7 @@ if st.session_state.trader and st.session_state.trader.connected:
                 st.session_state.suggested_qty = default_qty
                 st.rerun()
 
-    # Các tab còn lại giữ nguyên logic, chỉ cập nhật UI container
+    # Tab 4: Automated Trading - ĐÃ SỬA LỖI HIỂN THỊ
     with tab4:
         st.markdown("""
         <div class="dashboard-card">
@@ -1311,8 +1318,131 @@ if st.session_state.trader and st.session_state.trader.connected:
         </div>
         """, unsafe_allow_html=True)
         
-        # ... (giữ nguyên toàn bộ logic của tab Automated Trading)
+        st.info("Configure your automated trading strategy below:")
         
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            auto_asset_type = st.selectbox("Asset Type:", ["Stocks", "Crypto", "Forex"], key="auto_asset")
+            auto_symbol = st.text_input("Trading Symbol:", "BTCUSD", key="auto_symbol").upper()
+            auto_timeframe = st.selectbox("Timeframe:", ["1h", "4h", "1d"], key="auto_timeframe")
+            
+        with col2:
+            risk_per_trade = st.slider("Risk per Trade (%):", 0.1, 5.0, 1.0, 0.1, key="risk_slider")
+            max_positions = st.number_input("Max Simultaneous Positions:", 1, 10, 3, key="max_pos")
+            auto_capital = st.number_input("Capital Allocation ($):", 1000, 100000, 5000, key="auto_capital")
+        
+        st.subheader("🤖 ML Strategy Settings")
+        ml_enabled = st.checkbox("Enable ML-based Signals", value=True, key="ml_enable")
+        min_confidence = st.slider("Minimum Confidence Level:", 0.5, 0.95, 0.7, 0.05, key="min_conf")
+        
+        st.subheader("🎮 Trading Controls")
+        
+        col_start, col_stop, col_status = st.columns(3)
+        
+        bot_running = st.session_state.get('bot_running', False)
+        
+        with col_start:
+            if not bot_running:
+                if st.button("🚀 Start Bot", use_container_width=True, type="primary", key="start_bot"):
+                    st.session_state.bot_running = True
+                    st.success("🤖 Trading bot started!")
+                    st.rerun()
+            else:
+                if st.button("⏸️ Pause Bot", use_container_width=True, key="pause_bot"):
+                    st.session_state.bot_running = False
+                    st.warning("⏸️ Trading bot paused!")
+                    st.rerun()
+        
+        with col_stop:
+            if st.button("🛑 Stop Bot", use_container_width=True, type="secondary", key="stop_bot"):
+                st.session_state.bot_running = False
+                st.error("🛑 Bot stopped!")
+                st.rerun()
+        
+        with col_status:
+            status_color = "🟢" if bot_running else "🔴"
+            st.metric("Bot Status", "RUNNING" if bot_running else "STOPPED", delta=status_color)
+        
+        if bot_running:
+            st.subheader("📊 Real-time Monitoring")
+            
+            with st.spinner("🤖 Bot is monitoring markets..."):
+                time.sleep(2)
+                
+                data = load_data_for_live(auto_symbol, auto_asset_type)
+                if data is not None:
+                    model = train_model_on_the_fly(data)
+                    signal, confidence = get_ml_signal(data, model)
+                    
+                    current_price = data['Close'].iloc[-1]
+                    if len(data) > 1:
+                        price_change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100)
+                    else:
+                        price_change = 0
+                    
+                    col_price, col_signal, col_confidence = st.columns(3)
+                    
+                    with col_price:
+                        st.metric("Current Price", f"${current_price:.4f}", f"{price_change:.2f}%")
+                    
+                    with col_signal:
+                        signal_color = "green" if signal == "BUY" else "red" if signal == "SELL" else "gray"
+                        st.metric("ML Signal", signal, delta_color="normal" if signal == "BUY" else "inverse")
+                    
+                    with col_confidence:
+                        conf_level = "HIGH" if confidence > 0.8 else "MEDIUM" if confidence > 0.6 else "LOW"
+                        st.metric("Confidence", f"{confidence:.1%}", conf_level)
+                    
+                    if ml_enabled and confidence >= min_confidence and signal != "HOLD":
+                        st.warning(f"🚨 HIGH CONFIDENCE SIGNAL: {signal} {auto_symbol} (Confidence: {confidence:.1%})")
+                        
+                        position_size = (auto_capital * risk_per_trade / 100) / current_price
+                        
+                        col_exec, col_info = st.columns([1, 2])
+                        with col_exec:
+                            if st.button(f"Execute {signal} Order", type="primary", key="auto_execute"):
+                                side = "buy" if signal == "BUY" else "sell"
+                                result = trader.place_order(auto_symbol, position_size, side, auto_asset_type)
+                                
+                                if result:
+                                    trade_data = {
+                                        'timestamp': datetime.now(),
+                                        'symbol': auto_symbol,
+                                        'side': signal,
+                                        'quantity': position_size,
+                                        'price': current_price,
+                                        'strategy': 'ML-Auto',
+                                        'confidence': confidence,
+                                        'asset_type': auto_asset_type
+                                    }
+                                    performance_analytics.trade_journal.add_trade(trade_data)
+                                    st.success(f"✅ Automated {signal} order executed!")
+                                    st.rerun()
+                        
+                        with col_info:
+                            st.info(f"**Position Size**: {position_size:.4f} units | **Risk**: ${auto_capital * risk_per_trade / 100:.2f}")
+                else:
+                    st.error("❌ Cannot load market data for automated trading")
+        
+        st.subheader("📈 Strategy Performance")
+        if performance_analytics.trade_journal.trades:
+            auto_trades = [t for t in performance_analytics.trade_journal.trades if t.get('strategy') == 'ML-Auto']
+            if auto_trades:
+                win_count = sum(1 for t in auto_trades if t.get('pnl', 0) > 0)
+                total_auto = len(auto_trades)
+                win_rate = (win_count / total_auto * 100) if total_auto > 0 else 0
+                
+                col_win, col_total, col_rate = st.columns(3)
+                col_win.metric("Winning Trades", win_count)
+                col_total.metric("Total Trades", total_auto)
+                col_rate.metric("Win Rate", f"{win_rate:.1f}%")
+            else:
+                st.info("No automated trades yet. Start the bot to see performance metrics.")
+        else:
+            st.info("No trading history available. Start trading to see performance metrics.")
+
+    # Tab 5: Risk Dashboard - ĐÃ SỬA LỖI HIỂN THỊ
     with tab5:
         st.markdown("""
         <div class="dashboard-card">
@@ -1320,8 +1450,42 @@ if st.session_state.trader and st.session_state.trader.connected:
         </div>
         """, unsafe_allow_html=True)
         
-        # ... (giữ nguyên toàn bộ logic của tab Risk Dashboard)
-        
+        try:
+            risk_fig, risk_metrics = create_risk_dashboard(trader)
+            st.plotly_chart(risk_fig, use_container_width=True)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                var_color = "inverse" if risk_metrics['var_1d'] > 1000 else "off" if risk_metrics['var_1d'] > 500 else "normal"
+                st.metric(
+                    "1-Day Value at Risk", 
+                    f"${risk_metrics['var_1d']:,.2f}",
+                    delta=f"{(risk_metrics['var_1d']/float(trader.get_account_info().portfolio_value)*100):.1f}% of portfolio",
+                    delta_color=var_color
+                )
+            
+            with col2:
+                dd_color = "inverse" if risk_metrics['max_drawdown'] > 20 else "off" if risk_metrics['max_drawdown'] > 10 else "normal"
+                st.metric(
+                    "Max Drawdown", 
+                    f"{risk_metrics['max_drawdown']:.1f}%",
+                    delta_color=dd_color
+                )
+            
+            with col3:
+                sharpe_color = "normal" if risk_metrics['sharpe_ratio'] > 1.5 else "off" if risk_metrics['sharpe_ratio'] > 0.5 else "inverse"
+                st.metric(
+                    "Sharpe Ratio", 
+                    f"{risk_metrics['sharpe_ratio']:.2f}",
+                    delta="Good" if risk_metrics['sharpe_ratio'] > 1 else "Poor" if risk_metrics['sharpe_ratio'] < 0 else "Average",
+                    delta_color=sharpe_color
+                )
+                
+        except Exception as e:
+            st.error(f"Error loading risk dashboard: {e}")
+
+    # Tab 6: Performance Analytics - ĐÃ SỬA LỖI HIỂN THỊ
     with tab6:
         st.markdown("""
         <div class="dashboard-card">
@@ -1329,8 +1493,35 @@ if st.session_state.trader and st.session_state.trader.connected:
         </div>
         """, unsafe_allow_html=True)
         
-        # ... (giữ nguyên toàn bộ logic của tab Performance Analytics)
-        
+        if st.button("Generate Daily Report", key="generate_report"):
+            try:
+                report = performance_analytics.generate_daily_report()
+                fig_equity, fig_gauges = performance_analytics.create_performance_charts(report)
+                
+                st.subheader("Daily Performance Summary")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Daily P&L", f"${report['daily_pnl']:,.2f}")
+                col2.metric("Win Rate", f"{report['win_rate']:.1f}%")
+                col3.metric("Profit Factor", f"{report['profit_factor']:.2f}")
+                col4.metric("Total Trades", report['total_trades'])
+                
+                col5, col6, col7, col8 = st.columns(4)
+                col5.metric("Avg Trade Duration", report['avg_trade_duration'])
+                col6.metric("Sharpe Ratio", f"{report['sharpe_ratio']:.2f}")
+                col7.metric("Max Drawdown", f"{report['max_drawdown']:.1f}%")
+                col8.metric("Best Strategy", report['best_performing_strategy'])
+                
+                st.plotly_chart(fig_gauges, use_container_width=True)
+                if fig_equity.data:
+                    st.plotly_chart(fig_equity, use_container_width=True)
+                else:
+                    st.info("No equity curve data available yet. Start trading to see performance metrics.")
+                    
+            except Exception as e:
+                st.error(f"Error generating performance report: {e}")
+
+    # Tab 7: Social Sentiment - ĐÃ SỬA LỖI HIỂN THỊ
     with tab7:
         st.markdown("""
         <div class="dashboard-card">
@@ -1338,7 +1529,55 @@ if st.session_state.trader and st.session_state.trader.connected:
         </div>
         """, unsafe_allow_html=True)
         
-        # ... (giữ nguyên toàn bộ logic của tab Social Sentiment)
+        sentiment_symbol = st.text_input("Enter symbol for sentiment analysis:", "BTCUSD", key="sentiment_symbol")
+        
+        if st.button("Analyze Social Sentiment", key="analyze_sentiment"):
+            try:
+                sentiment_data = sentiment_analyzer.get_social_sentiment(sentiment_symbol)
+                
+                st.subheader(f"Social Sentiment for {sentiment_symbol}")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    sentiment_color = "normal" if sentiment_data['combined_score'] > 0.1 else "inverse" if sentiment_data['combined_score'] < -0.1 else "off"
+                    st.metric(
+                        "Overall Sentiment",
+                        sentiment_data['sentiment_label'],
+                        delta=f"{sentiment_data['combined_score']:.2f}",
+                        delta_color=sentiment_color
+                    )
+                
+                with col2:
+                    st.metric("Confidence Level", f"{sentiment_data['confidence']:.1f}%")
+                
+                with col3:
+                    st.metric("Twitter Volume", f"{sentiment_data['twitter_volume']:,}")
+                
+                with col4:
+                    st.metric("Reddit Volume", f"{sentiment_data['reddit_volume']:,}")
+                
+                sentiment_gauge = go.Figure(go.Indicator(
+                    mode = "gauge+number",
+                    value = sentiment_data['combined_score'],
+                    title = {'text': "Sentiment Score"},
+                    gauge = {
+                        'axis': {'range': [-1, 1]},
+                        'bar': {'color': "darkblue"},
+                        'steps': [
+                            {'range': [-1, -0.1], 'color': "red"},
+                            {'range': [-0.1, 0.1], 'color': "yellow"},
+                            {'range': [0.1, 1], 'color': "green"}],
+                    }
+                ))
+                
+                sentiment_gauge.update_layout(height=300, template="plotly_dark")
+                st.plotly_chart(sentiment_gauge, use_container_width=True)
+                
+                st.info(f"📊 Sentiment Trend: {sentiment_data['sentiment_trend']}")
+                
+            except Exception as e:
+                st.error(f"Error analyzing social sentiment: {e}")
 
 else:
     # Welcome Screen với design đồng bộ
