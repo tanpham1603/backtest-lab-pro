@@ -125,11 +125,22 @@ st.markdown("""
         margin: 2rem 0;
         border: none;
     }
+    .order-success {
+        background: rgba(0, 255, 136, 0.1);
+        border: 1px solid #00ff88;
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+    .order-error {
+        background: rgba(255, 68, 68, 0.1);
+        border: 1px solid #ff4444;
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
-
-# --- Header ---
-st.markdown('<div class="header-gradient">🚀 Live Trading Pro</div>', unsafe_allow_html=True)
 
 # --- ACCOUNT MANAGER ---
 class AccountManager:
@@ -197,6 +208,7 @@ class AlpacaTradingClient:
         self.account_info = {}
         self.base_url = "https://paper-api.alpaca.markets"
         self.headers = {}
+        self.last_order_time = {}
         
     def connect(self, api_key, api_secret):
         try:
@@ -259,25 +271,97 @@ class AlpacaTradingClient:
         except Exception as e:
             return []
     
-    def place_order(self, symbol, qty, side):
+    def is_crypto_symbol(self, symbol):
+        """Check if symbol is a cryptocurrency"""
+        crypto_symbols = ['BTC', 'ETH', 'ADA', 'DOGE', 'MATIC', 'SOL', 'DOT', 'AVAX', 'LINK', 'LTC', 'BCH', 'XLM', 'UNI', 'ALGO', 'ETC', 'XRP', 'EOS', 'AAVE', 'MKR', 'COMP', 'YFI', 'SNX', 'UMA', 'ZRX', 'BAT']
+        return any(crypto in symbol.upper() for crypto in crypto_symbols)
+    
+    def get_existing_position(self, symbol):
+        """Get existing position for a symbol to avoid wash trading"""
         try:
+            positions = self.get_positions()
+            for position in positions:
+                if position['symbol'].upper() == symbol.upper():
+                    return position
+            return None
+        except:
+            return None
+    
+    def place_order(self, symbol, qty, side, order_type="market"):
+        try:
+            # Anti-wash trading: Check if we're trying to sell more than we have or buy immediately after selling
+            existing_position = self.get_existing_position(symbol)
+            
+            if side.lower() == "sell":
+                if not existing_position or float(existing_position['qty']) < qty:
+                    st.error(f"Cannot sell {qty} shares of {symbol}. Available: {existing_position['qty'] if existing_position else 0}")
+                    return None
+            
+            # Rate limiting
+            current_time = time.time()
+            if symbol in self.last_order_time:
+                time_since_last = current_time - self.last_order_time[symbol]
+                if time_since_last < 2:  # 2 second cooldown per symbol
+                    st.warning(f"Please wait {2 - time_since_last:.1f}s before trading {symbol} again")
+                    return None
+            
+            # Different order parameters for crypto vs stocks
+            is_crypto = self.is_crypto_symbol(symbol)
+            
             order_data = {
                 "symbol": symbol.upper(),
                 "qty": str(int(qty)),
                 "side": side.lower(),
-                "type": "market",
-                "time_in_force": "day"
+                "type": order_type.lower(),
             }
             
-            response = requests.post(f"{self.base_url}/v2/orders", headers=self.headers, json=order_data)
-            if response.status_code == 200:
-                self._update_account_info()
-                return response.json()
+            # Set appropriate time_in_force
+            if is_crypto:
+                order_data["time_in_force"] = "gtc"  # Good till cancelled for crypto
             else:
-                st.error(f"Order failed: {response.json().get('message', 'Unknown error')}")
+                order_data["time_in_force"] = "day"  # Day for stocks
+            
+            # For market orders, add additional parameters to avoid wash trading
+            if order_type.lower() == "market":
+                order_data["client_order_id"] = f"{symbol}_{side}_{int(time.time())}"
+            
+            response = requests.post(f"{self.base_url}/v2/orders", headers=self.headers, json=order_data)
+            
+            if response.status_code == 200:
+                self.last_order_time[symbol] = current_time
+                self._update_account_info()
+                order_result = response.json()
+                
+                # Display success message
+                st.markdown(f"""
+                <div class="order-success">
+                    <h4>✅ Order Executed Successfully!</h4>
+                    <p><strong>Symbol:</strong> {order_result['symbol']}</p>
+                    <p><strong>Side:</strong> {order_result['side'].upper()}</p>
+                    <p><strong>Quantity:</strong> {order_result['qty']}</p>
+                    <p><strong>Type:</strong> {order_result['type']}</p>
+                    <p><strong>Status:</strong> {order_result['status']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                return order_result
+            else:
+                error_msg = response.json().get('message', 'Unknown error')
+                st.markdown(f"""
+                <div class="order-error">
+                    <h4>❌ Order Failed</h4>
+                    <p><strong>Error:</strong> {error_msg}</p>
+                </div>
+                """, unsafe_allow_html=True)
                 return None
+                
         except Exception as e:
-            st.error(f"Error placing order: {e}")
+            st.markdown(f"""
+            <div class="order-error">
+                <h4>❌ Order Error</h4>
+                <p><strong>Exception:</strong> {str(e)}</p>
+            </div>
+            """, unsafe_allow_html=True)
             return None
 
 # --- PERFORMANCE ANALYTICS ---
@@ -427,7 +511,9 @@ def load_crypto_data(symbol):
     try:
         if '/' in symbol:
             symbol = symbol.replace('/', '-')
-        data = yf.download(symbol + "-USD", period="6mo", progress=False)
+        # Remove -USD suffix if already present to avoid duplication
+        symbol_clean = symbol.replace('-USD', '').replace('/USD', '')
+        data = yf.download(symbol_clean + "-USD", period="6mo", progress=False)
         if not data.empty:
             data.columns = [col.lower() for col in data.columns]
         return data
@@ -528,6 +614,7 @@ with col2:
         <p><strong>1. Get API Keys:</strong><br>app.alpaca.markets</p>
         <p><strong>2. Paper Trading:</strong><br>$100,000 virtual</p>
         <p><strong>3. US Stocks:</strong><br>AAPL, TSLA, etc.</p>
+        <p><strong>4. Crypto:</strong><br>BTC, ETH, etc.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -653,10 +740,18 @@ if st.session_state.trader.connected:
         
         with col_t1:
             asset_type = st.radio("Asset Type", ["Stock", "Crypto"], horizontal=True)
-            symbol = st.text_input("Symbol", value="AAPL" if asset_type == "Stock" else "BTC-USD", key="trading_symbol").upper()
+            symbol = st.text_input("Symbol", value="AAPL" if asset_type == "Stock" else "BTC", key="trading_symbol").upper()
+            
+            # Show existing position if any
+            existing_position = trader.get_existing_position(symbol)
+            if existing_position:
+                st.info(f"Existing position: {existing_position['qty']} shares at ${existing_position['avg_entry_price']}")
         
         with col_t2:
             qty = st.number_input("Quantity", min_value=1, value=10, step=1, key="trading_qty")
+            
+            # Order type selection
+            order_type = st.selectbox("Order Type", ["market", "limit"], key="order_type")
             
             # Price display
             current_price = get_current_price(symbol, asset_type)
@@ -667,7 +762,7 @@ if st.session_state.trader.connected:
         with col_buy:
             if st.button("🟢 BUY", use_container_width=True, type="primary", key="buy_btn"):
                 if symbol and qty > 0:
-                    result = trader.place_order(symbol, qty, "buy")
+                    result = trader.place_order(symbol, qty, "buy", order_type)
                     if result:
                         time.sleep(1)
                         st.rerun()
@@ -675,10 +770,20 @@ if st.session_state.trader.connected:
         with col_sell:
             if st.button("🔴 SELL", use_container_width=True, type="primary", key="sell_btn"):
                 if symbol and qty > 0:
-                    result = trader.place_order(symbol, qty, "sell")
+                    result = trader.place_order(symbol, qty, "sell", order_type)
                     if result:
                         time.sleep(1)
                         st.rerun()
+        
+        # Trading Tips
+        with st.expander("💡 Trading Tips"):
+            st.markdown("""
+            - **Crypto Trading**: Uses GTC (Good Till Cancelled) time-in-force
+            - **Stock Trading**: Uses DAY time-in-force  
+            - **Wash Trading Prevention**: System checks existing positions before selling
+            - **Rate Limiting**: 2-second cooldown between trades for the same symbol
+            - **Position Validation**: Cannot sell more shares than you own
+            """)
     
     with tab2:
         st.subheader("Automated Trading")
