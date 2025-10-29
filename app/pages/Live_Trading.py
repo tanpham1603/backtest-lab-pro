@@ -5,16 +5,10 @@ import time
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import traceback
-from datetime import datetime, timedelta
 import requests
 import json
-import base64
-import os
+from datetime import datetime
 import pandas_ta as ta
-import re
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -103,8 +97,6 @@ st.markdown("""
         font-weight: 600;
         margin-right: 0.5rem;
     }
-    .badge-stock { background: linear-gradient(135deg, #28a745, #7ae582); color: white; }
-    .badge-crypto { background: linear-gradient(135deg, #f7931a, #ffc46c); color: black; }
     .badge-profit { background: linear-gradient(135deg, #00ff88, #00cc6a); color: white; }
     .badge-loss { background: linear-gradient(135deg, #ff4444, #cc0000); color: white; }
     .connection-panel {
@@ -113,18 +105,6 @@ st.markdown("""
         padding: 2rem;
         border: 1px solid rgba(255, 255, 255, 0.1);
         margin-bottom: 2rem;
-    }
-    .tab-container {
-        background: rgba(255, 255, 255, 0.02);
-        border-radius: 15px;
-        padding: 2rem;
-        margin-top: 1rem;
-    }
-    .divider {
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #667eea, transparent);
-        margin: 2rem 0;
-        border: none;
     }
     .sentiment-card {
         background: rgba(255, 255, 255, 0.05);
@@ -162,6 +142,7 @@ class AlpacaTradingClient:
         self.base_url = "https://paper-api.alpaca.markets"
         self.headers = {}
         self.account_info = {}
+        self.positions = []
         
     def connect(self, api_key, api_secret):
         try:
@@ -174,7 +155,7 @@ class AlpacaTradingClient:
             response = requests.get(f"{self.base_url}/v2/account", headers=self.headers, timeout=10)
             if response.status_code == 200:
                 self.connected = True
-                self._update_account_info()
+                self._update_account_data()
                 return True
             else:
                 error_msg = response.json().get('message', 'Unknown error')
@@ -185,19 +166,24 @@ class AlpacaTradingClient:
             st.error(f"❌ Connection error: {str(e)}")
             return False
     
-    def _update_account_info(self):
+    def _update_account_data(self):
+        """Update both account info and positions"""
         try:
+            # Get account info
             response = requests.get(f"{self.base_url}/v2/account", headers=self.headers, timeout=10)
             if response.status_code == 200:
                 account_data = response.json()
                 
                 # Get positions
                 positions_response = requests.get(f"{self.base_url}/v2/positions", headers=self.headers, timeout=10)
-                positions = positions_response.json() if positions_response.status_code == 200 else []
+                if positions_response.status_code == 200:
+                    self.positions = positions_response.json()
+                else:
+                    self.positions = []
                 
-                # Calculate additional metrics
-                positions_value = sum(float(pos.get('market_value', 0)) for pos in positions) if positions else 0
-                unrealized_pl = sum(float(pos.get('unrealized_pl', 0)) for pos in positions) if positions else 0
+                # Calculate metrics
+                positions_value = sum(float(pos.get('market_value', 0)) for pos in self.positions)
+                unrealized_pl = sum(float(pos.get('unrealized_pl', 0)) for pos in self.positions)
                 
                 self.account_info = {
                     'equity': float(account_data.get('equity', 0)),
@@ -206,32 +192,26 @@ class AlpacaTradingClient:
                     'portfolio_value': float(account_data.get('portfolio_value', 0)),
                     'positions_value': positions_value,
                     'unrealized_pl': unrealized_pl,
-                    'positions_count': len(positions)
+                    'positions_count': len(self.positions)
                 }
                 return True
             return False
         except Exception as e:
-            st.error(f"Error updating account info: {str(e)}")
+            st.error(f"Error updating account data: {str(e)}")
             return False
     
     def get_account_info(self):
         return self.account_info
     
     def get_positions(self):
-        try:
-            response = requests.get(f"{self.base_url}/v2/positions", headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                return response.json()
-            return []
-        except Exception as e:
-            st.error(f"Error getting positions: {str(e)}")
-            return []
+        return self.positions
     
     def place_order(self, symbol, qty, side):
         try:
+            symbol = symbol.upper().strip()
             order_data = {
-                "symbol": symbol.upper().strip(),
-                "qty": str(qty),
+                "symbol": symbol,
+                "qty": str(int(qty)),
                 "side": side.lower(),
                 "type": "market",
                 "time_in_force": "day"
@@ -245,8 +225,10 @@ class AlpacaTradingClient:
             )
             
             if response.status_code == 200:
-                # Update account info after successful order
-                self._update_account_info()
+                # Wait a moment for order to process
+                time.sleep(2)
+                # Update account data after successful order
+                self._update_account_data()
                 return response.json()
             else:
                 error_msg = response.json().get('message', 'Unknown error')
@@ -273,14 +255,16 @@ class AITradingAssistant:
             current_price = float(stock_data['Close'].iloc[-1])
             sma_20 = float(stock_data['Close'].rolling(20).mean().iloc[-1])
             sma_50 = float(stock_data['Close'].rolling(50).mean().iloc[-1])
-            rsi_value = ta.rsi(stock_data['Close']).iloc[-1]
-            rsi = float(rsi_value) if not pd.isna(rsi_value) else 50.0
             
-            # Price vs moving averages
+            # Calculate RSI safely
+            rsi_series = ta.rsi(stock_data['Close'])
+            rsi = float(rsi_series.iloc[-1]) if not rsi_series.empty and not pd.isna(rsi_series.iloc[-1]) else 50.0
+            
+            # Price vs moving averages (with zero check)
             price_vs_sma_20 = ((current_price - sma_20) / sma_20) * 100 if sma_20 != 0 else 0
             price_vs_sma_50 = ((current_price - sma_50) / sma_50) * 100 if sma_50 != 0 else 0
             
-            # Determine sentiment and confidence
+            # Determine sentiment
             if price_vs_sma_20 > 5 and price_vs_sma_50 > 10:
                 sentiment = "STRONG_BULLISH"
                 recommendation = "🟢 STRONG BUY"
@@ -310,20 +294,14 @@ class AITradingAssistant:
             # Generate insights
             insights = []
             if price_vs_sma_20 > 0:
-                insights.append(f"📈 Trading {price_vs_sma_20:.1f}% above 20-day average ({sma_20:.2f})")
+                insights.append(f"📈 Trading {price_vs_sma_20:.1f}% above 20-day average")
             else:
-                insights.append(f"📉 Trading {abs(price_vs_sma_20):.1f}% below 20-day average ({sma_20:.2f})")
+                insights.append(f"📉 Trading {abs(price_vs_sma_20):.1f}% below 20-day average")
             
             if rsi > 70:
-                insights.append("🚨 RSI indicates overbought conditions - caution advised")
+                insights.append("🚨 RSI indicates overbought conditions")
             elif rsi < 30:
-                insights.append("💎 RSI indicates oversold conditions - potential opportunity")
-            
-            # Volume analysis
-            current_volume = stock_data['Volume'].iloc[-1]
-            avg_volume = stock_data['Volume'].rolling(20).mean().iloc[-1]
-            if current_volume > avg_volume * 1.5:
-                insights.append("🔥 High volume detected - strong market interest")
+                insights.append("💎 RSI indicates oversold conditions")
             
             # Price targets
             if "BULLISH" in sentiment:
@@ -392,81 +370,6 @@ class AITradingAssistant:
             'rsi': 50.0,
             'timestamp': datetime.now().isoformat()
         }
-
-# --- MACHINE LEARNING PREDICTOR ---
-class MLPredictor:
-    def __init__(self):
-        self.model = None
-    
-    def train_model(self, data):
-        try:
-            if len(data) < 100:
-                return False
-            
-            # Create features
-            data['SMA_10'] = data['Close'].rolling(10).mean()
-            data['SMA_20'] = data['Close'].rolling(20).mean()
-            data['SMA_50'] = data['Close'].rolling(50).mean()
-            data['RSI'] = ta.rsi(data['Close'])
-            data['MACD'] = ta.macd(data['Close'])['MACD_12_26_9']
-            data['Volume_SMA'] = data['Volume'].rolling(20).mean()
-            
-            # Create target (price increase in next 5 days)
-            data['Future_Return'] = data['Close'].shift(-5) / data['Close'] - 1
-            data['Target'] = (data['Future_Return'] > 0).astype(int)
-            
-            # Prepare features
-            features = ['SMA_10', 'SMA_20', 'SMA_50', 'RSI', 'MACD', 'Volume_SMA']
-            data_clean = data.dropna()
-            
-            if len(data_clean) < 50:
-                return False
-            
-            X = data_clean[features]
-            y = data_clean['Target']
-            
-            self.model = RandomForestClassifier(n_estimators=100, random_state=42, max_depth=10)
-            self.model.fit(X, y)
-            
-            return True
-            
-        except Exception as e:
-            print(f"Model training error: {e}")
-            return False
-    
-    def predict(self, data):
-        if self.model is None:
-            return "HOLD", 0.5
-        
-        try:
-            # Prepare latest data point
-            latest = data.iloc[-1:].copy()
-            
-            # Calculate features for prediction
-            latest['SMA_10'] = data['Close'].rolling(10).mean().iloc[-1]
-            latest['SMA_20'] = data['Close'].rolling(20).mean().iloc[-1]
-            latest['SMA_50'] = data['Close'].rolling(50).mean().iloc[-1]
-            latest['RSI'] = ta.rsi(data['Close']).iloc[-1]
-            latest['MACD'] = ta.macd(data['Close'])['MACD_12_26_9'].iloc[-1]
-            latest['Volume_SMA'] = data['Volume'].rolling(20).mean().iloc[-1]
-            
-            features = ['SMA_10', 'SMA_20', 'SMA_50', 'RSI', 'MACD', 'Volume_SMA']
-            X_pred = latest[features]
-            
-            prediction = self.model.predict(X_pred)[0]
-            probability = self.model.predict_proba(X_pred)[0]
-            
-            confidence = max(probability)
-            
-            if prediction == 1 and confidence > 0.6:
-                return "BUY", confidence
-            elif prediction == 0 and confidence > 0.6:
-                return "SELL", confidence
-            else:
-                return "HOLD", confidence
-                
-        except Exception as e:
-            return "HOLD", 0.5
 
 # --- DATA FUNCTIONS ---
 @st.cache_data(ttl=300)
@@ -551,7 +454,6 @@ def display_positions(client):
             else:
                 losing.append(pos)
         except (ValueError, TypeError):
-            # Skip positions with invalid data
             continue
     
     col1, col2 = st.columns(2)
@@ -582,7 +484,6 @@ def display_positions(client):
 
 def display_position_card(position):
     try:
-        # Safely extract values with defaults
         symbol = position.get('symbol', 'Unknown')
         qty = float(position.get('qty', 0))
         avg_price = float(position.get('avg_entry_price', 0))
@@ -591,7 +492,7 @@ def display_position_card(position):
         
         # Calculate P&L percentage safely
         cost_basis = avg_price * qty
-        if cost_basis != 0:
+        if cost_basis > 0:
             pl_percent = (unrealized_pl / cost_basis) * 100
         else:
             pl_percent = 0.0
@@ -619,8 +520,6 @@ def display_position_card(position):
         """, unsafe_allow_html=True)
         
     except Exception as e:
-        # Skip positions that cause errors
-        print(f"Error displaying position: {e}")
         return
 
 def display_ai_assistant():
@@ -650,7 +549,6 @@ def display_ai_assistant():
         """, unsafe_allow_html=True)
 
 def display_ai_analysis(analysis):
-    # Sentiment color mapping
     sentiment_color = {
         "STRONG_BULLISH": "#00ff88",
         "BULLISH": "#7ae582", 
@@ -661,7 +559,6 @@ def display_ai_analysis(analysis):
     
     color = sentiment_color.get(analysis['sentiment'], "#667eea")
     
-    # Main recommendation card
     st.markdown(f"""
     <div class="sentiment-card" style="border-left-color: {color};">
         <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -685,12 +582,10 @@ def display_ai_analysis(analysis):
     </div>
     """, unsafe_allow_html=True)
     
-    # Insights
     st.markdown("#### 💡 Key Insights")
     for insight in analysis['insights']:
         st.markdown(f"- {insight}")
     
-    # Price targets
     st.markdown("#### 🎯 Price Targets")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -700,7 +595,6 @@ def display_ai_analysis(analysis):
     with col3:
         st.metric("Long Term", f"${analysis['targets']['long_term']:.2f}")
     
-    # Support & Resistance
     st.markdown("#### 📊 Support & Resistance")
     col1, col2 = st.columns(2)
     with col1:
@@ -737,6 +631,7 @@ def main():
                     with st.spinner("Connecting to Alpaca..."):
                         if st.session_state.trading_client.connect(api_key, api_secret):
                             st.success("✅ Connected to Alpaca successfully!")
+                            st.rerun()
                         else:
                             st.error("❌ Failed to connect. Check your credentials.")
                 else:
@@ -746,7 +641,7 @@ def main():
             if st.session_state.trading_client.connected:
                 if st.button("🔄 Refresh Data", use_container_width=True):
                     with st.spinner("Refreshing..."):
-                        st.session_state.trading_client._update_account_info()
+                        st.session_state.trading_client._update_account_data()
                         st.rerun()
     
     with col2:
@@ -773,7 +668,7 @@ def main():
         st.markdown("---")
         
         # Trading Tabs
-        tab1, tab2, tab3, tab4 = st.tabs(["🎯 Manual Trading", "🤖 Auto Trading", "📊 Analytics", "🤖 AI Assistant"])
+        tab1, tab2, tab3 = st.tabs(["🎯 Manual Trading", "📊 Analytics", "🤖 AI Assistant"])
         
         with tab1:
             st.subheader("Manual Trading")
@@ -784,7 +679,6 @@ def main():
                 symbol = st.text_input("Stock Symbol:", "AAPL", key="trade_symbol").upper()
                 qty = st.number_input("Quantity:", min_value=1, value=10, key="trade_qty")
                 
-                # Show current price
                 current_price = get_current_price(symbol)
                 if current_price:
                     st.metric("Current Price", f"${current_price:.2f}")
@@ -815,48 +709,6 @@ def main():
                                 st.rerun()
         
         with tab2:
-            st.subheader("Auto Trading Bot")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                auto_symbol = st.text_input("Symbol for Auto Trading:", "AAPL", key="auto_symbol").upper()
-                risk_percent = st.slider("Risk per Trade %", 1, 10, 2)
-                min_confidence = st.slider("Min Confidence %", 50, 95, 70)
-                
-                # Show ML prediction
-                data = get_stock_data(auto_symbol, "6mo")
-                if data is not None:
-                    ml_predictor = MLPredictor()
-                    if ml_predictor.train_model(data):
-                        signal, confidence = ml_predictor.predict(data)
-                        
-                        signal_color = "#00ff88" if signal == "BUY" else "#ff4444" if signal == "SELL" else "#667eea"
-                        st.markdown(f"### Current Signal: <span style='color: {signal_color}'>{signal}</span>", unsafe_allow_html=True)
-                        st.metric("Confidence", f"{confidence:.1%}")
-            
-            with col2:
-                st.markdown("#### Bot Control")
-                col_start, col_stop = st.columns(2)
-                with col_start:
-                    if not st.session_state.bot_running:
-                        if st.button("🚀 Start Bot", use_container_width=True, type="primary"):
-                            st.session_state.bot_running = True
-                            st.success("🤖 Trading bot started!")
-                    else:
-                        if st.button("⏸️ Pause Bot", use_container_width=True):
-                            st.session_state.bot_running = False
-                            st.warning("⏸️ Trading bot paused!")
-                
-                with col_stop:
-                    if st.button("🛑 Stop Bot", use_container_width=True):
-                        st.session_state.bot_running = False
-                        st.error("🛑 Trading bot stopped!")
-                
-                if st.session_state.bot_running:
-                    st.info("🤖 Bot is actively monitoring and trading...")
-        
-        with tab3:
             st.subheader("Portfolio Analytics")
             
             account_info = client.get_account_info()
@@ -865,9 +717,8 @@ def main():
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                # Simple VaR calculation
                 portfolio_value = account_info.get('portfolio_value', 0)
-                var_1d = portfolio_value * 0.02  # 2% daily VaR
+                var_1d = portfolio_value * 0.02
                 st.metric("1-Day VaR (95%)", f"${var_1d:,.0f}")
             
             with col2:
@@ -876,30 +727,11 @@ def main():
             
             with col3:
                 cash = account_info.get('cash', 0)
-                portfolio_value = account_info.get('portfolio_value', 1)  # Avoid division by zero
+                portfolio_value = account_info.get('portfolio_value', 1)
                 cash_ratio = (cash / portfolio_value) * 100 if portfolio_value > 0 else 0
                 st.metric("Cash Allocation", f"{cash_ratio:.1f}%")
-            
-            # Performance metrics
-            st.markdown("#### 📈 Performance Metrics")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                unrealized_pl = account_info.get('unrealized_pl', 0)
-                portfolio_value = account_info.get('portfolio_value', 1)
-                total_return = (unrealized_pl / portfolio_value) * 100 if portfolio_value > 0 else 0
-                st.metric("Total Return", f"{total_return:+.2f}%")
-            
-            with col2:
-                st.metric("Active Positions", f"{len(positions)}")
-            
-            with col3:
-                if positions:
-                    positions_value = account_info.get('positions_value', 0)
-                    avg_position_size = positions_value / len(positions) if len(positions) > 0 else 0
-                    st.metric("Avg Position Size", f"${avg_position_size:,.0f}")
         
-        with tab4:
+        with tab3:
             display_ai_assistant()
     
     else:
@@ -933,9 +765,9 @@ def main():
             st.markdown("""
             <div class="dashboard-card">
                 <div class="feature-icon">⚡</div>
-                <h3>Auto Trading</h3>
-                <p>ML-powered trading signals and automation</p>
-                <p><strong>Features:</strong> Pattern recognition, risk management</p>
+                <h3>Real-time Data</h3>
+                <p>Live market data and portfolio updates</p>
+                <p><strong>Features:</strong> Yahoo Finance, Alpaca API</p>
             </div>
             """, unsafe_allow_html=True)
 
