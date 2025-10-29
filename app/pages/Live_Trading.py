@@ -196,14 +196,14 @@ class AlpacaTradingClient:
                 positions = positions_response.json() if positions_response.status_code == 200 else []
                 
                 # Calculate additional metrics
-                positions_value = sum(float(pos['market_value']) for pos in positions) if positions else 0
-                unrealized_pl = sum(float(pos['unrealized_pl']) for pos in positions) if positions else 0
+                positions_value = sum(float(pos.get('market_value', 0)) for pos in positions) if positions else 0
+                unrealized_pl = sum(float(pos.get('unrealized_pl', 0)) for pos in positions) if positions else 0
                 
                 self.account_info = {
-                    'equity': float(account_data['equity']),
-                    'buying_power': float(account_data['buying_power']),
-                    'cash': float(account_data['cash']),
-                    'portfolio_value': float(account_data['portfolio_value']),
+                    'equity': float(account_data.get('equity', 0)),
+                    'buying_power': float(account_data.get('buying_power', 0)),
+                    'cash': float(account_data.get('cash', 0)),
+                    'portfolio_value': float(account_data.get('portfolio_value', 0)),
                     'positions_value': positions_value,
                     'unrealized_pl': unrealized_pl,
                     'positions_count': len(positions)
@@ -273,11 +273,12 @@ class AITradingAssistant:
             current_price = float(stock_data['Close'].iloc[-1])
             sma_20 = float(stock_data['Close'].rolling(20).mean().iloc[-1])
             sma_50 = float(stock_data['Close'].rolling(50).mean().iloc[-1])
-            rsi = float(ta.rsi(stock_data['Close']).iloc[-1]) if not pd.isna(ta.rsi(stock_data['Close']).iloc[-1]) else 50
+            rsi_value = ta.rsi(stock_data['Close']).iloc[-1]
+            rsi = float(rsi_value) if not pd.isna(rsi_value) else 50.0
             
             # Price vs moving averages
-            price_vs_sma_20 = ((current_price - sma_20) / sma_20) * 100
-            price_vs_sma_50 = ((current_price - sma_50) / sma_50) * 100
+            price_vs_sma_20 = ((current_price - sma_20) / sma_20) * 100 if sma_20 != 0 else 0
+            price_vs_sma_50 = ((current_price - sma_50) / sma_50) * 100 if sma_50 != 0 else 0
             
             # Determine sentiment and confidence
             if price_vs_sma_20 > 5 and price_vs_sma_50 > 10:
@@ -495,7 +496,7 @@ def display_portfolio_overview(client):
         st.markdown(f"""
         <div class="metric-card">
             <div class="feature-icon">💰</div>
-            <div class="metric-value">${account_info['equity']:,.0f}</div>
+            <div class="metric-value">${account_info.get('equity', 0):,.0f}</div>
             <div class="metric-label">Portfolio Value</div>
         </div>
         """, unsafe_allow_html=True)
@@ -504,7 +505,7 @@ def display_portfolio_overview(client):
         st.markdown(f"""
         <div class="metric-card">
             <div class="feature-icon">⚡</div>
-            <div class="metric-value">${account_info['buying_power']:,.0f}</div>
+            <div class="metric-value">${account_info.get('buying_power', 0):,.0f}</div>
             <div class="metric-label">Buying Power</div>
         </div>
         """, unsafe_allow_html=True)
@@ -513,17 +514,18 @@ def display_portfolio_overview(client):
         st.markdown(f"""
         <div class="metric-card">
             <div class="feature-icon">💵</div>
-            <div class="metric-value">${account_info['cash']:,.0f}</div>
+            <div class="metric-value">${account_info.get('cash', 0):,.0f}</div>
             <div class="metric-label">Available Cash</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col4:
-        pl_color = "#00ff88" if account_info['unrealized_pl'] >= 0 else "#ff4444"
+        unrealized_pl = account_info.get('unrealized_pl', 0)
+        pl_color = "#00ff88" if unrealized_pl >= 0 else "#ff4444"
         st.markdown(f"""
         <div class="metric-card">
             <div class="feature-icon">📈</div>
-            <div class="metric-value" style="color: {pl_color}">${account_info['unrealized_pl']:,.2f}</div>
+            <div class="metric-value" style="color: {pl_color}">${unrealized_pl:,.2f}</div>
             <div class="metric-label">Unrealized P&L</div>
         </div>
         """, unsafe_allow_html=True)
@@ -538,8 +540,19 @@ def display_positions(client):
         return
     
     # Group positions by profit/loss
-    profitable = [p for p in positions if float(p['unrealized_pl']) > 0]
-    losing = [p for p in positions if float(p['unrealized_pl']) <= 0]
+    profitable = []
+    losing = []
+    
+    for pos in positions:
+        try:
+            unrealized_pl = float(pos.get('unrealized_pl', 0))
+            if unrealized_pl > 0:
+                profitable.append(pos)
+            else:
+                losing.append(pos)
+        except (ValueError, TypeError):
+            # Skip positions with invalid data
+            continue
     
     col1, col2 = st.columns(2)
     
@@ -552,6 +565,8 @@ def display_positions(client):
             """, unsafe_allow_html=True)
             for pos in profitable:
                 display_position_card(pos)
+        else:
+            st.info("No profitable positions")
     
     with col2:
         if losing:
@@ -562,35 +577,51 @@ def display_positions(client):
             """, unsafe_allow_html=True)
             for pos in losing:
                 display_position_card(pos)
+        else:
+            st.info("No losing positions")
 
 def display_position_card(position):
-    qty = float(position['qty'])
-    avg_price = float(position['avg_entry_price'])
-    current_price = float(position['current_price'])
-    unrealized_pl = float(position['unrealized_pl'])
-    pl_percent = (unrealized_pl / (avg_price * qty)) * 100
-    
-    pl_class = "" if unrealized_pl >= 0 else "sell"
-    badge_class = "badge-profit" if unrealized_pl >= 0 else "badge-loss"
-    
-    st.markdown(f"""
-    <div class="position-item {pl_class}">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>{position['symbol']}</strong>
-                <span class="badge {badge_class}">{qty:.0f} shares</span>
-            </div>
-            <div style="text-align: right;">
-                <div style="color: {'#00ff88' if unrealized_pl >= 0 else '#ff4444'}; font-weight: bold;">
-                    ${unrealized_pl:+.2f} ({pl_percent:+.1f}%)
+    try:
+        # Safely extract values with defaults
+        symbol = position.get('symbol', 'Unknown')
+        qty = float(position.get('qty', 0))
+        avg_price = float(position.get('avg_entry_price', 0))
+        current_price = float(position.get('current_price', 0))
+        unrealized_pl = float(position.get('unrealized_pl', 0))
+        
+        # Calculate P&L percentage safely
+        cost_basis = avg_price * qty
+        if cost_basis != 0:
+            pl_percent = (unrealized_pl / cost_basis) * 100
+        else:
+            pl_percent = 0.0
+        
+        pl_class = "" if unrealized_pl >= 0 else "sell"
+        badge_class = "badge-profit" if unrealized_pl >= 0 else "badge-loss"
+        
+        st.markdown(f"""
+        <div class="position-item {pl_class}">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>{symbol}</strong>
+                    <span class="badge {badge_class}">{qty:.0f} shares</span>
                 </div>
-                <div style="font-size: 0.8em; color: #8898aa;">
-                    Avg: ${avg_price:.2f} • Current: ${current_price:.2f}
+                <div style="text-align: right;">
+                    <div style="color: {'#00ff88' if unrealized_pl >= 0 else '#ff4444'}; font-weight: bold;">
+                        ${unrealized_pl:+.2f} ({pl_percent:+.1f}%)
+                    </div>
+                    <div style="font-size: 0.8em; color: #8898aa;">
+                        Avg: ${avg_price:.2f} • Current: ${current_price:.2f}
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        # Skip positions that cause errors
+        print(f"Error displaying position: {e}")
+        return
 
 def display_ai_assistant():
     st.subheader("🤖 AI Trading Assistant")
@@ -835,7 +866,8 @@ def main():
             
             with col1:
                 # Simple VaR calculation
-                var_1d = account_info['portfolio_value'] * 0.02  # 2% daily VaR
+                portfolio_value = account_info.get('portfolio_value', 0)
+                var_1d = portfolio_value * 0.02  # 2% daily VaR
                 st.metric("1-Day VaR (95%)", f"${var_1d:,.0f}")
             
             with col2:
@@ -843,7 +875,9 @@ def main():
                 st.metric("Diversification", f"{diversification} positions")
             
             with col3:
-                cash_ratio = (account_info['cash'] / account_info['portfolio_value']) * 100
+                cash = account_info.get('cash', 0)
+                portfolio_value = account_info.get('portfolio_value', 1)  # Avoid division by zero
+                cash_ratio = (cash / portfolio_value) * 100 if portfolio_value > 0 else 0
                 st.metric("Cash Allocation", f"{cash_ratio:.1f}%")
             
             # Performance metrics
@@ -851,7 +885,9 @@ def main():
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                total_return = (account_info['unrealized_pl'] / account_info['portfolio_value']) * 100
+                unrealized_pl = account_info.get('unrealized_pl', 0)
+                portfolio_value = account_info.get('portfolio_value', 1)
+                total_return = (unrealized_pl / portfolio_value) * 100 if portfolio_value > 0 else 0
                 st.metric("Total Return", f"{total_return:+.2f}%")
             
             with col2:
@@ -859,7 +895,8 @@ def main():
             
             with col3:
                 if positions:
-                    avg_position_size = account_info['positions_value'] / len(positions)
+                    positions_value = account_info.get('positions_value', 0)
+                    avg_position_size = positions_value / len(positions) if len(positions) > 0 else 0
                     st.metric("Avg Position Size", f"${avg_position_size:,.0f}")
         
         with tab4:
