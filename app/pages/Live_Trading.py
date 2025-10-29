@@ -413,10 +413,15 @@ class AITradingAssistant:
         try:
             # Thử period dài hơn trước
             data = yf.download(symbol, period='3mo', progress=False, timeout=15)
-            if data.empty or len(data) < 20:
+            # Fix: Xử lý kết quả trả về từ yfinance
+            if isinstance(data, pd.DataFrame) and not data.empty:
+                return data
+            else:
                 # Thử period ngắn hơn
                 data = yf.download(symbol, period='1mo', progress=False, timeout=15)
-            return data
+                if isinstance(data, pd.DataFrame) and not data.empty:
+                    return data
+            return pd.DataFrame()
         except Exception as e:
             st.error(f"Lỗi lấy dữ liệu {symbol}: {e}")
             return pd.DataFrame()
@@ -799,7 +804,7 @@ class AITradingAssistant:
     def calculate_support_resistance(self, data):
         """Tính support và resistance levels"""
         if data.empty or len(data) < 20:
-            return {'support': 95, 'resistance': 105}
+            return {'support': 95, 'resistance': 105, 'current': 100}
         
         try:
             high_20 = data['High'].rolling(20).max().iloc[-1]
@@ -953,13 +958,17 @@ def display_ai_analysis(analysis):
         with col3:
             st.metric("Long Term", f"${analysis['price_targets']['long_term']:.2f}")
     
-    # Support & Resistance
+    # Support & Resistance - FIXED: Sửa lỗi format string
     st.markdown("#### 📊 Support & Resistance")
     col_sup, col_res = st.columns(2)
     with col_sup:
-        st.metric("Support Level", f"${analysis['support_resistance']['support']:.2f}")
+        # FIX: Truy cập đúng key trong dictionary
+        support_level = analysis['support_resistance'].get('support', 0)
+        st.metric("Support Level", f"${support_level:.2f}")
     with col_res:
-        st.metric("Resistance Level", f"${analysis['support_resistance']['resistance']:.2f}")
+        # FIX: Truy cập đúng key trong dictionary
+        resistance_level = analysis['support_resistance'].get('resistance', 0)
+        st.metric("Resistance Level", f"${resistance_level:.2f}")
     
     # Market Context
     st.markdown("#### 🌐 Market Context")
@@ -1031,14 +1040,17 @@ def get_ml_signal(data, model):
     except Exception as e:
         return "NO_SIGNAL", 0
 
-# --- DATA LOADING ---
+# --- DATA LOADING - FIXED VERSION ---
 @st.cache_data(ttl=300)
 def load_stock_data(symbol, period="6mo"):
     try:
         data = yf.download(symbol, period=period, progress=False, timeout=15)
-        if not data.empty:
-            data.columns = [col.lower() for col in data.columns]
-        return data
+        # FIX: Xử lý kết quả trả về từ yfinance
+        if isinstance(data, pd.DataFrame) and not data.empty:
+            # FIX: Đảm bảo tên cột là string trước khi chuyển đổi
+            data.columns = [str(col).lower() for col in data.columns]
+            return data
+        return None
     except Exception as e:
         st.error(f"Error loading data for {symbol}: {e}")
         return None
@@ -1048,10 +1060,13 @@ def load_crypto_data(symbol):
     try:
         if '/' in symbol:
             symbol = symbol.replace('/', '-')
-        data = yf.download(symbol + "-USD", period="6mo", progress=False, timeout=15)
-        if not data.empty:
-            data.columns = [col.lower() for col in data.columns]
-        return data
+        crypto_symbol = symbol + "-USD"
+        data = yf.download(crypto_symbol, period="6mo", progress=False, timeout=15)
+        # FIX: Xử lý kết quả trả về từ yfinance
+        if isinstance(data, pd.DataFrame) and not data.empty:
+            data.columns = [str(col).lower() for col in data.columns]
+            return data
+        return None
     except Exception as e:
         st.error(f"Error loading crypto data for {symbol}: {e}")
         return None
