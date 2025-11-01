@@ -252,6 +252,48 @@ def load_data_for_live(symbol, asset_type):
         st.error(f"Lỗi tải dữ liệu cho {symbol}: {str(e)}")
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)  # Cache 60 giây để lấy giá mới
+def get_live_crypto_price_ccxt(symbol):
+    """
+    Lấy giá crypto THỰC TẾ từ CCXT (các sàn)
+    Trả về: {'price': 12345.6, 'change_pct': 2.5}
+    """
+    # Chuyển định dạng (ví dụ: BTCUSD -> BTC/USDT, ETH/USD -> ETH/USDT)
+    symbol = symbol.upper().replace('USD', '/USDT').replace('/USD', '/USDT')
+    if "USDT" not in symbol:
+        symbol = symbol + "/USDT"
+
+    # Danh sách các sàn để thử
+    exchanges = [
+        ccxt.bybit(), 
+        ccxt.binance(), 
+        ccxt.okx(), 
+        ccxt.gateio()
+    ]
+    
+    for exchange in exchanges:
+        try:
+            # Tải ticker (thông tin giá)
+            ticker = exchange.fetch_ticker(symbol)
+            if ticker and 'last' in ticker:
+                price = ticker['last']
+                
+                # Cố gắng lấy % thay đổi
+                change_pct = ticker.get('percentage', 0.0)
+                
+                # Nếu sàn không có 'percentage', thử tự tính
+                if change_pct == 0.0 and 'open' in ticker:
+                    if ticker['open'] > 0:
+                        change_pct = ((price - ticker['open']) / ticker['open']) * 100
+
+                return {'price': price, 'change_pct': change_pct}
+        except Exception as e:
+            continue  # Bỏ qua và thử sàn tiếp theo
+            
+    # Nếu tất cả sàn đều lỗi
+    st.warning(f"Không thể lấy giá live cho {symbol} từ CCXT.")
+    return None
+
 # --- Lớp AlpacaTrader ĐÃ SỬA LỖI HOÀN TOÀN ---
 class AlpacaTrader:
     def __init__(self, api_key, api_secret, paper=True):
@@ -340,14 +382,27 @@ class AlpacaTrader:
             if asset_type == "Stocks":
                 qty = int(qty)  # Stocks phải là số nguyên
             
-            # Sử dụng time_in_force phù hợp
-            time_in_force = TimeInForce.DAY
+            # --- SỬA LỖI Ở ĐÂY ---
+            #
+            # Logic CŨ (GÂY LỖI):
+            # time_in_force = TimeInForce.DAY
+            #
+            # Logic MỚI (ĐÃ SỬA):
+            # Crypto yêu cầu GTC (Good-Til-Canceled).
+            # Cổ phiếu/Forex nên dùng DAY để tránh lỗi wash trade khi thị trường đóng cửa.
+            
+            if asset_type == "Crypto":
+                time_in_force = TimeInForce.GTC  # Sửa cho Crypto
+            else:
+                time_in_force = TimeInForce.DAY   # Giữ nguyên cho Stocks/Forex
+            
+            # --- KẾT THÚC SỬA LỖI ---
             
             market_order_data = MarketOrderRequest(
                 symbol=formatted_symbol, 
                 qty=qty,
                 side=OrderSide.BUY if side.lower() == 'buy' else OrderSide.SELL,
-                time_in_force=time_in_force
+                time_in_force=time_in_force  # Đã sửa
             )
             
             order = self.api.submit_order(order_data=market_order_data)
@@ -946,18 +1001,19 @@ if st.session_state.trader and st.session_state.trader.connected:
                                 'asset_type': asset_type  # <-- ĐÃ SỬA
                             }
                             st.success(f"Đã chọn {position.symbol} ({asset_type}) để MUA - kiểm tra tab Giao dịch!")
-                    # CODE MỚI ĐÃ SỬA
                     with col2:
-                        if st.button(f"📉 Bán", key=f"sell_{position.symbol}", use_container_width=True):
+                        # CODE MỚI ĐÃ SỬA
+                        with col2:
+                            if st.button(f"📉 Bán", key=f"sell_{position.symbol}", use_container_width=True):
                                 # Tự động nhận diện asset type
-                            asset_type = "Crypto" if position.symbol.endswith("USD") else "Stocks"
-                            st.session_state.selected_position = {
-                                'symbol': position.symbol,
-                                'action': 'sell', 
-                                'current_qty': float(position.qty),
-                                'asset_type': asset_type # <-- ĐÃ SỬA
-                            }
-                            st.success(f"Đã chọn {position.symbol} ({asset_type}) để BÁN - kiểm tra tab Giao dịch!")
+                                asset_type = "Crypto" if position.symbol.endswith("USD") else "Stocks"
+                                st.session_state.selected_position = {
+                                    'symbol': position.symbol,
+                                    'action': 'sell', 
+                                    'current_qty': float(position.qty),
+                                    'asset_type': asset_type # <-- ĐÃ SỬA
+                                }
+                                st.success(f"Đã chọn {position.symbol} ({asset_type}) để BÁN - kiểm tra tab Giao dịch!")
                     st.markdown("---")
             else:
                 st.info("💰 Không có vị thế nào. Bắt đầu giao dịch để xem vị thế ở đây!")
@@ -1076,41 +1132,57 @@ if st.session_state.trader and st.session_state.trader.connected:
                                     format=format_str, 
                                     key="manual_qty")
         
-        # Hiển thị thông tin giá - ĐÃ SỬA LỖI FORMAT
+        # Hiển thị thông tin giá - ĐÃ SỬA HOÀN TOÀN ĐỂ DÙNG CCXT CHO CRYPTO
         current_price = None
         if symbol:
             try:
-                with st.spinner("Đang tải dữ liệu..."):
-                    data = load_data_for_live(symbol, asset_type)
-                    if data is not None and not data.empty and len(data) > 0:
-                        if 'Close' in data.columns and len(data['Close']) > 0:
+                order_value = 0
+                if asset_type == "Crypto":
+                    # --- DÙNG HÀM MỚI CHO CRYPTO ---
+                    with st.spinner("Đang lấy giá crypto..."):
+                        crypto_data = get_live_crypto_price_ccxt(symbol)
+                        if crypto_data:
+                            current_price = crypto_data['price']
+                            price_change = crypto_data['change_pct']
+                            order_value = current_price * float(qty)
+                            
+                            col_price, col_change, col_value = st.columns(3)
+                            with col_price:
+                                st.metric("Giá (Live)", f"${current_price:,.4f}")
+                            with col_change:
+                                st.metric("Thay đổi (24h)", f"{price_change:+.2f}%")
+                            with col_value:
+                                st.metric("Giá trị lệnh", f"${order_value:,.2f}")
+                        else:
+                            st.error("Không thể lấy giá crypto. Vui lòng thử lại.")
+                
+                else:
+                    # --- DÙNG LOGIC CŨ CHO STOCKS/FOREX ---
+                    with st.spinner("Đang tải dữ liệu..."):
+                        data = load_data_for_live(symbol, asset_type)
+                        if data is not None and not data.empty and 'Close' in data.columns:
                             current_price = float(data['Close'].iloc[-1])
-                            price_info = f"${current_price:.2f}"
                             
                             if len(data) > 1:
                                 prev_price = float(data['Close'].iloc[-2])
                                 price_change = ((current_price - prev_price) / prev_price * 100)
-                                change_info = f"{price_change:+.2f}%"
                             else:
                                 price_change = 0
-                                change_info = "N/A"
                             
-                            # Hiển thị thông tin
+                            order_value = current_price * float(qty)
+
                             col_price, col_change, col_value = st.columns(3)
                             with col_price:
-                                st.metric("Giá hiện tại", price_info)
+                                st.metric("Giá hiện tại", f"${current_price:,.2f}")
                             with col_change:
-                                st.metric("Thay đổi", change_info)
+                                st.metric("Thay đổi", f"{price_change:+.2f}%")
                             with col_value:
-                                order_value = current_price * qty
-                                st.metric("Giá trị lệnh", f"${order_value:.2f}")
+                                st.metric("Giá trị lệnh", f"${order_value:,.2f}")
                         else:
-                            st.warning("⚠️ Không thể lấy dữ liệu giá cho mã này")
-                    else:
-                        st.warning("⚠️ Không có dữ liệu cho mã này")
+                            st.warning("⚠️ Không có dữ liệu cho mã này (Stocks/Forex)")
                             
             except Exception as e:
-                st.warning(f"⚠️ Không thể tải dữ liệu cho {symbol}")
+                st.error(f"Lỗi tải dữ liệu cho {symbol}: {e}")
         
         # Nút đặt lệnh
         st.markdown("""
@@ -1187,7 +1259,7 @@ if st.session_state.trader and st.session_state.trader.connected:
                         time.sleep(2)
                         st.rerun()
         
-        # Clear selection button
+        #st.button Clear selection button
         if st.session_state.selected_position:
             if st.button("🧹 Xóa lựa chọn", use_container_width=True):
                 st.session_state.selected_position = None
