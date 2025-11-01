@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, GetPortfolioHistoryRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
 from alpaca.common.exceptions import APIError
 import plotly.graph_objects as go
 import plotly.express as px
@@ -184,111 +184,70 @@ st.markdown("""
 st.markdown('<div class="header-gradient">🚀 Live Trading Pro</div>', unsafe_allow_html=True)
 st.markdown('<div style="text-align: center; color: #8898aa; font-size: 1.2rem; margin-bottom: 3rem;">Professional Algorithmic Trading Platform</div>', unsafe_allow_html=True)
 
-# --- HÀM TẢI DỮ LIỆU ĐÃ ĐƯỢC SỬA HOÀN TOÀN ---
-def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
-    """Simple data fetcher using multiple exchanges"""
-    
-    # Danh sách exchanges ít bị chặn
-    exchanges = [
-        {'name': 'bybit', 'class': ccxt.bybit},
-        {'name': 'okx', 'class': ccxt.okx},
-        {'name': 'kucoin', 'class': ccxt.kucoin},
-        {'name': 'gateio', 'class': ccxt.gateio},
-        {'name': 'htx', 'class': ccxt.htx},
-    ]
-    
-    for exchange_info in exchanges:
-        try:
-            exchange = exchange_info['class']({
-                'timeout': 30000,
-                'enableRateLimit': True,
-            })
-            
-            # Fetch data
-            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-            
-            if ohlcv and len(ohlcv) > 0:
-                df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                df.set_index('timestamp', inplace=True)
-                return df
-                
-        except Exception as e:
-            continue
-    
-    # Fallback cuối cùng: Yahoo Finance
-    return get_yahoo_fallback(symbol)
-
-def get_yahoo_fallback(symbol):
-    """Fallback to Yahoo Finance"""
-    symbol_map = {
-        'BTC/USDT': 'BTC-USD',
-        'ETH/USDT': 'ETH-USD', 
-        'BNB/USDT': 'BNB-USD',
-        'ADA/USDT': 'ADA-USD',
-        'XRP/USDT': 'XRP-USD',
-        'DOT/USDT': 'DOT-USD',
-        'LINK/USDT': 'LINK-USD',
-        'LTC/USDT': 'LTC-USD',
-        'BCH/USDT': 'BCH-USD',
-        'SOL/USDT': 'SOL-USD',
-        'BTCUSD': 'BTC-USD',
-        'ETHUSD': 'ETH-USD',
-        'ADAUSD': 'ADA-USD',
-        'XRPUSD': 'XRP-USD'
-    }
-    
-    yahoo_symbol = symbol_map.get(symbol, symbol)
+# --- HÀM TẢI DỮ LIỆU ĐÃ SỬA HOÀN TOÀN ---
+def safe_yfinance_download(symbol, period="60d", interval="1d"):
+    """Hàm tải dữ liệu an toàn từ yfinance không bị lỗi format"""
     try:
-        # Thử nhiều định dạng symbol khác nhau
-        data = yf.download(yahoo_symbol, period='2mo', interval='1d', progress=False, auto_adjust=True)
-        if data.empty:
-            # Thử không có hậu tố USD
-            clean_symbol = symbol.replace('USD', '').replace('USDT', '')
-            data = yf.download(f"{clean_symbol}-USD", period='2mo', interval='1d', progress=False, auto_adjust=True)
-        return data
+        # Chuẩn hóa symbol
+        clean_symbol = symbol.upper().replace('USDT', '').replace('USD', '').replace('/', '')
+        
+        # Thử các định dạng symbol khác nhau
+        symbol_variants = [
+            clean_symbol,
+            f"{clean_symbol}-USD",
+            symbol,
+            symbol.replace('USDT', '-USD'),
+            symbol.replace('USD', '-USD')
+        ]
+        
+        for sym in symbol_variants:
+            try:
+                data = yf.download(sym, period=period, interval=interval, progress=False, auto_adjust=True)
+                if not data.empty and len(data) > 0:
+                    # Chuẩn hóa columns
+                    if isinstance(data.columns, pd.MultiIndex):
+                        data.columns = data.columns.get_level_values(0)
+                    
+                    # Đảm bảo có column Close
+                    if 'Close' not in data.columns and len(data.columns) > 0:
+                        data = data.rename(columns={data.columns[0]: 'Close'})
+                    
+                    return data
+            except Exception as e:
+                continue
+                
+        return pd.DataFrame()
+        
     except Exception as e:
-        st.error(f"Yahoo Finance fallback failed: {e}")
+        st.error(f"Lỗi tải dữ liệu cho {symbol}: {str(e)}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def load_data_for_live(symbol, asset_type):
+    """Hàm tải dữ liệu chính - ĐÃ SỬA HOÀN TOÀN LỖI FORMAT"""
     try:
         if asset_type == "Crypto":
-            # Thử nhiều định dạng symbol
-            symbols_to_try = [symbol]
-            
-            # Thêm các biến thể symbol
-            if 'USD' in symbol:
-                symbols_to_try.append(symbol.replace('USD', ''))
-                symbols_to_try.append(symbol.replace('USD', '') + '-USD')
-            if 'USDT' in symbol:
-                symbols_to_try.append(symbol.replace('USDT', ''))
-                symbols_to_try.append(symbol.replace('USDT', '') + '-USD')
-            
-            for sym in symbols_to_try:
-                try:
-                    data = yf.download(sym, period="60d", interval='1d', progress=False, auto_adjust=True)
-                    if not data.empty:
-                        # Đảm bảo columns tồn tại
-                        if 'Close' not in data.columns:
-                            if len(data.columns) > 0:
-                                data = data.rename(columns={data.columns[0]: 'Close'})
-                        return data
-                except:
-                    continue
-            
-            # Fallback cuối cùng
-            return pd.DataFrame()
+            data = safe_yfinance_download(symbol, "60d", "1d")
         else:
-            data = yf.download(symbol, period="2y", interval='1d', progress=False, auto_adjust=True)
+            data = safe_yfinance_download(symbol, "2y", "1d")
         
-        # Chuẩn hóa columns
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-        if len(data.columns) > 0:
-            data.columns = [str(col).capitalize() for col in data.columns]
+        # Kiểm tra và chuẩn hóa dữ liệu trả về
+        if data is None or data.empty:
+            return pd.DataFrame()
+            
+        # Đảm bảo các columns cần thiết tồn tại
+        required_columns = ['Close', 'Open', 'High', 'Low', 'Volume']
+        for col in required_columns:
+            if col not in data.columns:
+                if len(data.columns) >= 5:  # Nếu có đủ columns
+                    data.columns = required_columns[:len(data.columns)]
+                else:
+                    # Tạo columns mặc định nếu thiếu
+                    if 'Close' not in data.columns:
+                        data['Close'] = data.iloc[:, 0] if len(data.columns) > 0 else 0
+        
         return data
+        
     except Exception as e:
         st.error(f"Lỗi tải dữ liệu cho {symbol}: {str(e)}")
         return pd.DataFrame()
@@ -301,33 +260,51 @@ class AlpacaTrader:
             self.api = TradingClient(api_key, api_secret, paper=paper)
             self.account = self.api.get_account()
             self.connected = True
+            st.success("✅ Kết nối Alpaca thành công!")
         except Exception as e:
-            st.error(f"Error connecting to Alpaca: {e}")
+            st.error(f"❌ Lỗi kết nối Alpaca: {e}")
 
     def get_account_info(self): 
-        return self.api.get_account()
+        try:
+            return self.api.get_account()
+        except Exception as e:
+            st.error(f"Lỗi lấy thông tin tài khoản: {e}")
+            return None
     
     def get_positions(self): 
         try:
             return self.api.get_all_positions()
         except Exception as e:
-            st.error(f"Error getting positions: {e}")
+            st.error(f"Lỗi lấy danh sách positions: {e}")
             return []
     
-    def get_orders(self, status=None):
-        """Lấy danh sách các lệnh - ĐÃ SỬA LỖI PARAMETER"""
+    def get_orders(self, status_filter=None):
+        """Lấy danh sách các lệnh - ĐÃ SỬA HOÀN TOÀN"""
         try:
-            # SỬA LỖI: Alpaca API không hỗ trợ trực tiếp parameter 'status'
-            orders = self.api.get_orders()
-            if status:
-                # Filter orders by status manually
-                if status == 'open':
-                    return [order for order in orders if order.status in ['new', 'partially_filled', 'pending_new']]
-                elif status == 'closed':
-                    return [order for order in orders if order.status in ['filled', 'canceled', 'rejected', 'expired']]
-            return orders
+            # Lấy tất cả orders
+            all_orders = self.api.get_orders()
+            
+            if status_filter:
+                # Filter manual dựa trên status
+                if status_filter == 'open':
+                    return [order for order in all_orders if order.status in [
+                        OrderStatus.ACCEPTED, 
+                        OrderStatus.NEW, 
+                        OrderStatus.PARTIALLY_FILLED,
+                        OrderStatus.PENDING_NEW
+                    ]]
+                elif status_filter == 'closed':
+                    return [order for order in all_orders if order.status in [
+                        OrderStatus.FILLED, 
+                        OrderStatus.CANCELED, 
+                        OrderStatus.REJECTED,
+                        OrderStatus.EXPIRED
+                    ]]
+            
+            return all_orders
+            
         except Exception as e:
-            st.error(f"Error getting orders: {e}")
+            st.error(f"Lỗi lấy danh sách orders: {e}")
             return []
 
     def cancel_order(self, order_id):
@@ -335,9 +312,10 @@ class AlpacaTrader:
         try:
             self.api.cancel_order_by_id(order_id)
             st.success(f"✅ Đã hủy lệnh {order_id}")
+            time.sleep(1)  # Chờ một chút để update
             return True
         except Exception as e:
-            st.error(f"Error canceling order {order_id}: {e}")
+            st.error(f"Lỗi hủy order {order_id}: {e}")
             return False
 
     def get_portfolio_history(self, period="1M"):
@@ -347,20 +325,20 @@ class AlpacaTrader:
             history = self.api.get_portfolio_history(params)
             return history
         except Exception as e:
-            st.error(f"Error getting portfolio history: {e}")
+            st.error(f"Lỗi lấy lịch sử portfolio: {e}")
             return None
 
     def place_order(self, symbol, qty, side, asset_type):
+        """Đặt lệnh - ĐÃ SỬA HOÀN TOÀN"""
         try:
             # Định dạng symbol theo loại tài sản
             formatted_symbol = self._format_symbol(symbol, asset_type)
             
-            st.info(f"🔄 Placing {side.upper()} order for {qty} {formatted_symbol}...")
+            st.info(f"🔄 Đang đặt lệnh {side.upper()} cho {qty} {formatted_symbol}...")
             
-            # SỬA LỖI: Xử lý quantity cho các loại tài sản
+            # Xử lý quantity cho các loại tài sản
             if asset_type == "Stocks":
-                # Stocks phải là số nguyên
-                qty = int(qty)
+                qty = int(qty)  # Stocks phải là số nguyên
             
             # Sử dụng time_in_force phù hợp
             time_in_force = TimeInForce.DAY
@@ -371,12 +349,16 @@ class AlpacaTrader:
                 side=OrderSide.BUY if side.lower() == 'buy' else OrderSide.SELL,
                 time_in_force=time_in_force
             )
+            
             order = self.api.submit_order(order_data=market_order_data)
-            st.success(f"✅ Successfully submitted {side.upper()} order for {qty} units of {formatted_symbol}!")
+            st.success(f"✅ Đã đặt lệnh {side.upper()} thành công cho {qty} {formatted_symbol}!")
+            st.success(f"📋 ID lệnh: {order.id}")
             return order
+            
         except Exception as e:
-            st.error(f"❌ Error placing order: {e}")
-            st.error(f"Symbol attempted: {formatted_symbol}, Asset Type: {asset_type}, Quantity: {qty}")
+            error_msg = f"❌ Lỗi đặt lệnh: {e}"
+            st.error(error_msg)
+            st.error(f"Symbol: {formatted_symbol}, Asset Type: {asset_type}, Quantity: {qty}")
             return None
 
     def _format_symbol(self, symbol, asset_type):
@@ -384,33 +366,22 @@ class AlpacaTrader:
         symbol = symbol.upper().strip()
         
         if asset_type == "Crypto":
-            # Xử lý các định dạng symbol crypto phổ biến
             if '/' in symbol:
-                # Định dạng: BTC/USD -> BTCUSD
                 return symbol.replace('/', '')
             elif symbol.endswith('USDT'):
-                # Định dạng: BTCUSDT -> BTCUSD
                 return symbol.replace('USDT', 'USD')
             elif symbol.endswith('USD'):
-                # Đã đúng định dạng
                 return symbol
             else:
-                # Thêm USD nếu chưa có
                 return f"{symbol}USD"
-                
         elif asset_type == "Forex":
             if '/' in symbol:
-                # Định dạng: EUR/USD -> EURUSD
                 return symbol.replace('/', '')
             elif len(symbol) == 6:
-                # Định dạng: EURUSD -> EURUSD (giữ nguyên)
                 return symbol
             else:
-                # Giả sử là cặp forex chuẩn
                 return symbol
-                
         else:  # Stocks
-            # Giữ nguyên cho stocks
             return symbol
 
 # --- ADVANCED RISK MANAGEMENT DASHBOARD ---
@@ -421,7 +392,11 @@ class RiskManager:
     def calculate_var(self, positions, confidence_level=0.95, periods=252):
         """Tính Value at Risk"""
         try:
-            portfolio_value = float(self.trader.get_account_info().portfolio_value)
+            account_info = self.trader.get_account_info()
+            if not account_info:
+                return {'1d': 0, '1w': 0, '1m': 0}
+                
+            portfolio_value = float(account_info.portfolio_value)
             annual_volatility = 0.20
             daily_volatility = annual_volatility / np.sqrt(periods)
             
@@ -435,7 +410,6 @@ class RiskManager:
                 '1m': var_1m
             }
         except Exception as e:
-            st.error(f"Error calculating VaR: {e}")
             return {'1d': 0, '1w': 0, '1m': 0}
     
     def calculate_max_drawdown(self, portfolio_history):
@@ -457,7 +431,6 @@ class RiskManager:
                     return max_dd * 100
             return 0
         except Exception as e:
-            st.error(f"Error calculating max drawdown: {e}")
             return 0
     
     def calculate_sharpe_ratio(self, returns_series=None):
@@ -470,7 +443,6 @@ class RiskManager:
             sharpe = (annual_return - risk_free_rate) / annual_volatility
             return sharpe
         except Exception as e:
-            st.error(f"Error calculating Sharpe ratio: {e}")
             return 0
     
     def calculate_drawdown_series(self, portfolio_history):
@@ -491,7 +463,6 @@ class RiskManager:
                     return drawdowns
             return [0]
         except Exception as e:
-            st.error(f"Error calculating drawdown series: {e}")
             return [0]
 
 def create_risk_dashboard(trader):
@@ -594,7 +565,7 @@ class PerformanceAnalytics:
     def calculate_daily_pnl(self):
         try:
             positions = self.trader.get_positions()
-            daily_pnl = sum(float(p.unrealized_pl) for p in positions)
+            daily_pnl = sum(float(p.unrealized_pl) for p in positions) if positions else 0
             return daily_pnl
         except:
             return 0
@@ -606,6 +577,9 @@ class PerformanceAnalytics:
         return (winning_trades / len(self.trade_journal.trades)) * 100
     
     def calculate_profit_factor(self):
+        if len(self.trade_journal.trades) == 0:
+            return 0
+            
         gross_profit = sum(trade.get('pnl', 0) for trade in self.trade_journal.trades if trade.get('pnl', 0) > 0)
         gross_loss = abs(sum(trade.get('pnl', 0) for trade in self.trade_journal.trades if trade.get('pnl', 0) < 0))
         
@@ -711,57 +685,68 @@ def get_asset_badge(asset_type):
         return "badge-stock"
 
 def display_position(position):
-    symbol = position.symbol
-    qty = float(position.qty)
-    avg_entry = float(position.avg_entry_price)
-    current_price = float(position.current_price)
-    unrealized_pl = float(position.unrealized_pl)
-    pl_percent = (unrealized_pl / (avg_entry * qty)) * 100 if avg_entry * qty != 0 else 0
-    
-    pl_class = "" if unrealized_pl >= 0 else "sell"
-    badge_class = "badge-profit" if unrealized_pl >= 0 else "badge-loss"
-    
-    st.markdown(f"""
-    <div class="position-item {pl_class}">
-        <div style="display: flex; justify-content: between; align-items: center;">
-            <div>
-                <strong>{symbol}</strong>
-                <span class="badge {badge_class}">{qty:.4f} shares</span>
-            </div>
-            <div style="text-align: right;">
-                <div style="color: {'#00ff88' if unrealized_pl >= 0 else '#ff4444'}; font-weight: bold;">
-                    ${unrealized_pl:+.2f} ({pl_percent:+.1f}%)
+    """Hiển thị position"""
+    try:
+        symbol = position.symbol
+        qty = float(position.qty)
+        avg_entry = float(position.avg_entry_price)
+        current_price = float(position.current_price)
+        unrealized_pl = float(position.unrealized_pl)
+        pl_percent = (unrealized_pl / (avg_entry * qty)) * 100 if avg_entry * qty != 0 else 0
+        
+        pl_class = "" if unrealized_pl >= 0 else "sell"
+        badge_class = "badge-profit" if unrealized_pl >= 0 else "badge-loss"
+        
+        st.markdown(f"""
+        <div class="position-item {pl_class}">
+            <div style="display: flex; justify-content: between; align-items: center;">
+                <div>
+                    <strong>{symbol}</strong>
+                    <span class="badge {badge_class}">{qty:.4f} shares</span>
                 </div>
-                <div style="font-size: 0.8em; color: #8898aa;">
-                    Avg: ${avg_entry:.4f} • Current: ${current_price:.4f}
+                <div style="text-align: right;">
+                    <div style="color: {'#00ff88' if unrealized_pl >= 0 else '#ff4444'}; font-weight: bold;">
+                        ${unrealized_pl:+.2f} ({pl_percent:+.1f}%)
+                    </div>
+                    <div style="font-size: 0.8em; color: #8898aa;">
+                        Avg: ${avg_entry:.4f} • Current: ${current_price:.4f}
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Lỗi hiển thị position: {e}")
 
 def display_pending_order(order):
     """Hiển thị lệnh chờ với nút hủy"""
-    symbol = order.symbol
-    side = order.side.value
-    qty = float(order.qty)
-    filled_qty = float(order.filled_qty) if order.filled_qty else 0
-    remaining_qty = qty - filled_qty
-    
-    col1, col2, col3 = st.columns([3, 2, 1])
-    
-    with col1:
-        st.write(f"**{symbol}** - {side} {remaining_qty:.4f} shares")
-        st.write(f"Filled: {filled_qty:.4f} / Total: {qty:.4f}")
-    
-    with col2:
-        st.write(f"Type: {order.type.value}")
-        st.write(f"Status: {order.status.value}")
-    
-    with col3:
-        if st.button("❌ Cancel", key=f"cancel_{order.id}"):
-            if trader.cancel_order(order.id):
-                st.rerun()
+    try:
+        symbol = order.symbol
+        side = order.side.value
+        qty = float(order.qty)
+        filled_qty = float(order.filled_qty) if order.filled_qty else 0
+        remaining_qty = qty - filled_qty
+        
+        col1, col2, col3 = st.columns([3, 2, 1])
+        
+        with col1:
+            st.write(f"**{symbol}**")
+            st.write(f"Side: {side} | Qty: {remaining_qty:.2f}/{qty:.2f}")
+            st.write(f"Status: {order.status.value}")
+        
+        with col2:
+            st.write(f"Type: {order.type.value}")
+            if order.limit_price:
+                st.write(f"Limit: ${float(order.limit_price):.2f}")
+        
+        with col3:
+            if st.button("❌ Hủy", key=f"cancel_{order.id}", use_container_width=True):
+                if trader.cancel_order(order.id):
+                    st.rerun()
+                    
+        st.markdown("---")
+    except Exception as e:
+        st.error(f"Lỗi hiển thị order: {e}")
 
 # --- Session State ---
 if 'trader' not in st.session_state:
@@ -772,8 +757,8 @@ if 'selected_position' not in st.session_state:
     st.session_state.selected_position = None
 if 'suggested_qty' not in st.session_state:
     st.session_state.suggested_qty = 1.0
-if 'pending_orders' not in st.session_state:
-    st.session_state.pending_orders = []
+if 'last_order_time' not in st.session_state:
+    st.session_state.last_order_time = None
 
 # --- Sidebar ---
 with st.sidebar:
@@ -797,20 +782,20 @@ with st.sidebar:
     api_key = st.text_input("API Key", type="password", key="api_key_input")
     api_secret = st.text_input("API Secret", type="password", key="api_secret_input")
 
-    if st.button("Connect", use_container_width=True, type="primary"):
+    if st.button("Kết nối", use_container_width=True, type="primary"):
         if api_key and api_secret:
-            with st.spinner("Connecting..."):
+            with st.spinner("Đang kết nối..."):
                 st.session_state.trader = AlpacaTrader(api_key.strip(), api_secret.strip(), paper=(account_type == 'Paper Trading'))
-                if st.session_state.trader.connected:
+                if st.session_state.trader and st.session_state.trader.connected:
                     st.session_state.performance_analytics = PerformanceAnalytics(st.session_state.trader)
-                    st.success(f"✅ Connected to {account_type}!")
+                    st.success(f"✅ Đã kết nối {account_type}!")
                 else:
-                    st.error("❌ Connection failed")
+                    st.error("❌ Kết nối thất bại")
         else:
-            st.warning("Please enter API credentials")
+            st.warning("Vui lòng nhập API credentials")
 
     if st.session_state.trader and st.session_state.trader.connected:
-        st.success(f"✅ Connected to {account_type}!")
+        st.success(f"✅ Đã kết nối {account_type}!")
         
         st.markdown("""
         <div class="dashboard-card">
@@ -818,10 +803,10 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("🔄 Refresh Data", use_container_width=True):
+        if st.button("🔄 Làm mới dữ liệu", use_container_width=True):
             st.rerun()
     else:
-        st.info("Enter API credentials to begin")
+        st.info("Nhập API credentials để bắt đầu")
 
 # --- Main Content ---
 if st.session_state.trader and st.session_state.trader.connected:
@@ -831,71 +816,13 @@ if st.session_state.trader and st.session_state.trader.connected:
     # Status Cards
     try:
         account = trader.get_account_info()
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="feature-icon">💰</div>
-                <div class="metric-value">${float(account.portfolio_value):,.2f}</div>
-                <div class="metric-label">Portfolio Value</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="feature-icon">⚡</div>
-                <div class="metric-value">${float(account.buying_power):,.2f}</div>
-                <div class="metric-label">Buying Power</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            positions = trader.get_positions()
-            total_positions = len(positions) if positions else 0
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="feature-icon">📈</div>
-                <div class="metric-value">{total_positions}</div>
-                <div class="metric-label">Open Positions</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col4:
-            daily_pnl = performance_analytics.calculate_daily_pnl()
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="feature-icon">💹</div>
-                <div class="metric-value">${daily_pnl:,.2f}</div>
-                <div class="metric-label">Daily P&L</div>
-            </div>
-            """, unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Cannot load account information: {e}")
-
-    st.markdown('<hr class="divider">', unsafe_allow_html=True)
-
-    # Tabs với UI/UX đồng bộ - ĐÃ SỬA LỖI HIỂN THỊ
-    tab_titles = ["📊 Overview", "📈 Positions", "🛠️ Manual Trading", 
-                  "📉 Risk Dashboard", "📊 Performance Analytics", "⏳ Pending Orders"]
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_titles)
-
-    # Tab 1: Overview
-    with tab1:
-        st.markdown("""
-        <div class="dashboard-card">
-            <h3>📊 Account Overview</h3>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        try:
-            account = trader.get_account_info()
+        if account:
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.markdown(f"""
                 <div class="metric-card">
+                    <div class="feature-icon">💰</div>
                     <div class="metric-value">${float(account.portfolio_value):,.2f}</div>
                     <div class="metric-label">Portfolio Value</div>
                 </div>
@@ -904,217 +831,189 @@ if st.session_state.trader and st.session_state.trader.connected:
             with col2:
                 st.markdown(f"""
                 <div class="metric-card">
+                    <div class="feature-icon">⚡</div>
                     <div class="metric-value">${float(account.buying_power):,.2f}</div>
                     <div class="metric-label">Buying Power</div>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col3:
+                positions = trader.get_positions()
+                total_positions = len(positions) if positions else 0
                 st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-value">${float(account.cash):,.2f}</div>
-                    <div class="metric-label">Available Cash</div>
+                    <div class="feature-icon">📈</div>
+                    <div class="metric-value">{total_positions}</div>
+                    <div class="metric-label">Open Positions</div>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col4:
-                status_color = "#00ff88" if account.status.value == "ACTIVE" else "#ff4444"
+                daily_pnl = performance_analytics.calculate_daily_pnl()
                 st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-value" style="color: {status_color}">{account.status.value.upper()}</div>
-                    <div class="metric-label">Account Status</div>
+                    <div class="feature-icon">💹</div>
+                    <div class="metric-value">${daily_pnl:,.2f}</div>
+                    <div class="metric-label">Daily P&L</div>
                 </div>
                 """, unsafe_allow_html=True)
-            
-            # Quick Stats
-            st.markdown("""
-            <div class="dashboard-card">
-                <h3>📈 Quick Stats</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2, col3 = st.columns(3)
-            
-            try:
-                positions = trader.get_positions()
-                total_positions = len(positions) if positions else 0
+    except Exception as e:
+        st.error(f"Lỗi tải thông tin tài khoản: {e}")
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
+    # Tabs
+    tab_titles = ["📊 Tổng quan", "📈 Vị thế", "🛠️ Giao dịch", 
+                  "📉 Quản lý rủi ro", "📊 Hiệu suất", "⏳ Lệnh chờ"]
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_titles)
+
+    # Tab 1: Overview
+    with tab1:
+        st.markdown("""
+        <div class="dashboard-card">
+            <h3>📊 Tổng quan tài khoản</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        try:
+            account = trader.get_account_info()
+            if account:
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="metric-value">{total_positions}</div>
-                        <div class="metric-label">Total Positions</div>
+                        <div class="metric-value">${float(account.portfolio_value):,.2f}</div>
+                        <div class="metric-label">Tổng tài sản</div>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 with col2:
-                    daily_pnl = performance_analytics.calculate_daily_pnl()
-                    pnl_color = "#00ff88" if daily_pnl >= 0 else "#ff4444"
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="metric-value" style="color: {pnl_color}">${daily_pnl:,.2f}</div>
-                        <div class="metric-label">Daily P&L</div>
+                        <div class="metric-value">${float(account.buying_power):,.2f}</div>
+                        <div class="metric-label">Sức mua</div>
                     </div>
                     """, unsafe_allow_html=True)
                 
                 with col3:
-                    total_trades = len(performance_analytics.trade_journal.trades)
                     st.markdown(f"""
                     <div class="metric-card">
-                        <div class="metric-value">{total_trades}</div>
-                        <div class="metric-label">Total Trades</div>
+                        <div class="metric-value">${float(account.cash):,.2f}</div>
+                        <div class="metric-label">Tiền mặt</div>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-            except Exception as e:
-                st.error(f"Error loading quick stats: {e}")
                 
-        except Exception as e:
-            st.error(f"Cannot load account information: {e}")
+                with col4:
+                    status_color = "#00ff88" if account.status.value == "ACTIVE" else "#ff4444"
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value" style="color: {status_color}">{account.status.value}</div>
+                        <div class="metric-label">Trạng thái</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Lỗi tải thông tin: {e}")
 
     # Tab 2: Positions
     with tab2:
         st.markdown("""
         <div class="dashboard-card">
-            <h3>📈 Current Positions - Click to Trade</h3>
+            <h3>📈 Vị thế hiện tại</h3>
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("🔄 Refresh Positions", key="refresh_positions", use_container_width=True):
+        if st.button("🔄 Làm mới vị thế", key="refresh_positions", use_container_width=True):
             st.rerun()
             
         try:
             positions = trader.get_positions()
             if positions:
-                st.info("💡 Click on any position below to automatically fill trading form")
+                st.info("💡 Click vào vị thế để tự động điền form giao dịch")
                 
-                # Group positions by profit/loss
-                profitable_positions = [p for p in positions if float(p.unrealized_pl) > 0]
-                losing_positions = [p for p in positions if float(p.unrealized_pl) <= 0]
-                
-                col_pos1, col_pos2 = st.columns(2)
-                
-                with col_pos1:
-                    if profitable_positions:
-                        st.markdown("""
-                        <div class="position-group">
-                            <h4>🟢 Profitable Positions</h4>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        for position in profitable_positions:
-                            display_position(position)
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button(f"📈 Buy More", key=f"buy_{position.symbol}", use_container_width=True):
-                                    st.session_state.selected_position = {
-                                        'symbol': position.symbol,
-                                        'action': 'buy',
-                                        'current_qty': float(position.qty),
-                                        'asset_type': "Crypto" if "USD" in position.symbol and len(position.symbol) in [6,7] else "Stocks"
-                                    }
-                                    st.success(f"Selected {position.symbol} for BUY - check Manual Trading tab!")
-                            with col2:
-                                if st.button(f"📉 Sell", key=f"sell_{position.symbol}", use_container_width=True):
-                                    st.session_state.selected_position = {
-                                        'symbol': position.symbol,
-                                        'action': 'sell', 
-                                        'current_qty': float(position.qty),
-                                        'asset_type': "Crypto" if "USD" in position.symbol and len(position.symbol) in [6,7] else "Stocks"
-                                    }
-                                    st.success(f"Selected {position.symbol} for SELL - check Manual Trading tab!")
-                
-                with col_pos2:
-                    if losing_positions:
-                        st.markdown("""
-                        <div class="position-group">
-                            <h4>🔴 Losing Positions</h4>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        for position in losing_positions:
-                            display_position(position)
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button(f"📈 Buy More", key=f"buy_l_{position.symbol}", use_container_width=True):
-                                    st.session_state.selected_position = {
-                                        'symbol': position.symbol,
-                                        'action': 'buy',
-                                        'current_qty': float(position.qty),
-                                        'asset_type': "Crypto" if "USD" in position.symbol and len(position.symbol) in [6,7] else "Stocks"
-                                    }
-                                    st.success(f"Selected {position.symbol} for BUY - check Manual Trading tab!")
-                            with col2:
-                                if st.button(f"📉 Sell", key=f"sell_l_{position.symbol}", use_container_width=True):
-                                    st.session_state.selected_position = {
-                                        'symbol': position.symbol,
-                                        'action': 'sell', 
-                                        'current_qty': float(position.qty),
-                                        'asset_type': "Crypto" if "USD" in position.symbol and len(position.symbol) in [6,7] else "Stocks"
-                                    }
-                                    st.success(f"Selected {position.symbol} for SELL - check Manual Trading tab!")
-                
+                for position in positions:
+                    display_position(position)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"📈 Mua thêm", key=f"buy_{position.symbol}", use_container_width=True):
+                            st.session_state.selected_position = {
+                                'symbol': position.symbol,
+                                'action': 'buy',
+                                'current_qty': float(position.qty),
+                                'asset_type': "Stocks"  # Mặc định là Stocks
+                            }
+                            st.success(f"Đã chọn {position.symbol} để MUA - kiểm tra tab Giao dịch!")
+                    with col2:
+                        if st.button(f"📉 Bán", key=f"sell_{position.symbol}", use_container_width=True):
+                            st.session_state.selected_position = {
+                                'symbol': position.symbol,
+                                'action': 'sell', 
+                                'current_qty': float(position.qty),
+                                'asset_type': "Stocks"
+                            }
+                            st.success(f"Đã chọn {position.symbol} để BÁN - kiểm tra tab Giao dịch!")
+                    st.markdown("---")
             else:
-                st.info("💰 No open positions. Start trading to see your positions here!")
+                st.info("💰 Không có vị thế nào. Bắt đầu giao dịch để xem vị thế ở đây!")
                 
         except Exception as e:
-            st.error(f"Cannot load positions list: {e}")
+            st.error(f"Lỗi tải danh sách vị thế: {e}")
 
-    # Tab 3: Manual Trading - ĐÃ SỬA LỖI HOÀN TOÀN
+    # Tab 3: Manual Trading - ĐÃ SỬA HOÀN TOÀN
     with tab3:
         st.markdown("""
         <div class="dashboard-card">
-            <h3>🛠️ Manual Trading</h3>
+            <h3>🛠️ Giao dịch thủ công</h3>
         </div>
         """, unsafe_allow_html=True)
         
         # Hiển thị thông báo nếu có position được chọn
         if st.session_state.selected_position:
             selected = st.session_state.selected_position
-            badge_class = get_asset_badge(selected.get('asset_type', 'Stocks'))
             st.markdown(f"""
             <div class="warning-box">
-                <h4 style="margin: 0; color: white;">🎯 Trading {selected['symbol']} - Current: {selected['current_qty']:.4f} shares - Action: {selected['action'].upper()}</h4>
+                <h4 style="margin: 0; color: white;">🎯 Đang giao dịch {selected['symbol']} - Hiện có: {selected['current_qty']:.2f} shares - Hành động: {selected['action'].upper()}</h4>
             </div>
             """, unsafe_allow_html=True)
             
-            # Tự động điền thông tin
             default_symbol = selected['symbol']
             default_action = selected['action']
             default_asset_type = selected.get('asset_type', 'Stocks')
-            suggested_qty = selected['current_qty'] * 0.1  # 10% của position hiện tại
+            suggested_qty = selected['current_qty'] * 0.1
         else:
-            default_symbol = "BTCUSD"
+            default_symbol = "AAPL"
             default_action = "buy"
-            default_asset_type = "Crypto"
-            suggested_qty = 0.01
+            default_asset_type = "Stocks"
+            suggested_qty = 1.0
         
-        # Trading form với UI đồng bộ
+        # Trading form
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("""
             <div class="dashboard-card">
-                <h4>🎯 Trade Configuration</h4>
+                <h4>🎯 Cấu hình giao dịch</h4>
             </div>
             """, unsafe_allow_html=True)
             
-            asset_type = st.radio("Asset Type:", ["Stocks", "Crypto", "Forex"], 
-                                 index=["Stocks", "Crypto", "Forex"].index(default_asset_type) if default_asset_type in ["Stocks", "Crypto", "Forex"] else 1,
+            asset_type = st.radio("Loại tài sản:", ["Stocks", "Crypto", "Forex"], 
+                                 index=["Stocks", "Crypto", "Forex"].index(default_asset_type) if default_asset_type in ["Stocks", "Crypto", "Forex"] else 0,
                                  horizontal=True, key="manual_asset")
             
-            symbol = st.text_input("Symbol:", value=default_symbol, key="manual_symbol").upper()
+            symbol = st.text_input("Mã:", value=default_symbol, key="manual_symbol").upper()
             
         with col2:
             st.markdown("""
             <div class="dashboard-card">
-                <h4>📊 Order Details</h4>
+                <h4>📊 Chi tiết lệnh</h4>
             </div>
             """, unsafe_allow_html=True)
             
-            # SỬA LỖI: Xử lý quantity phù hợp với từng loại asset
+            # Xử lý quantity
             if asset_type == "Crypto":
-                min_qty = 0.00001
+                min_qty = 0.0001
                 step = 0.001
-                format_str = "%.5f"
+                format_str = "%.4f"
                 default_qty = float(0.01)
             elif asset_type == "Forex":
                 min_qty = 0.01
@@ -1130,118 +1029,102 @@ if st.session_state.trader and st.session_state.trader.connected:
             current_qty = st.session_state.selected_position['current_qty'] if st.session_state.selected_position else 0
             
             if current_qty > 0:
-                st.write(f"📊 **Current Position**: {current_qty:.4f} shares")
+                st.write(f"📊 **Vị thế hiện tại**: {current_qty:.2f} shares")
                 col_q1, col_q2, col_q3 = st.columns(3)
                 with col_q1:
                     if st.button("25%", use_container_width=True):
                         if asset_type == "Stocks":
-                            st.session_state.suggested_qty = int(current_qty * 0.25)
+                            st.session_state.suggested_qty = max(1, int(current_qty * 0.25))
                         else:
                             st.session_state.suggested_qty = current_qty * 0.25
                 with col_q2:
                     if st.button("50%", use_container_width=True):
                         if asset_type == "Stocks":
-                            st.session_state.suggested_qty = int(current_qty * 0.5)
+                            st.session_state.suggested_qty = max(1, int(current_qty * 0.5))
                         else:
                             st.session_state.suggested_qty = current_qty * 0.5
                 with col_q3:
                     if st.button("100%", use_container_width=True):
                         if asset_type == "Stocks":
-                            st.session_state.suggested_qty = int(current_qty)
+                            st.session_state.suggested_qty = max(1, int(current_qty))
                         else:
                             st.session_state.suggested_qty = current_qty
             
-            # SỬA LỖI: Xử lý kiểu dữ liệu quantity
             current_suggested_qty = st.session_state.get('suggested_qty', suggested_qty)
             
             if asset_type == "Stocks":
-                # Stocks phải là số nguyên
                 if isinstance(current_suggested_qty, float):
                     current_suggested_qty = int(current_suggested_qty)
-                qty = st.number_input("Quantity:", 
+                qty = st.number_input("Số lượng:", 
                                     min_value=min_qty, 
                                     value=current_suggested_qty, 
                                     step=step, 
                                     format=format_str, 
                                     key="manual_qty")
-                # Đảm bảo qty là số nguyên
                 qty = int(qty)
             else:
-                # Crypto và Forex dùng số thập phân
-                qty = st.number_input("Quantity:", 
+                qty = st.number_input("Số lượng:", 
                                     min_value=min_qty, 
                                     value=float(current_suggested_qty), 
                                     step=step, 
                                     format=format_str, 
                                     key="manual_qty")
         
-        # Hiển thị thông tin thời gian thực - ĐÃ SỬA LỖI HOÀN TOÀN
+        # Hiển thị thông tin giá - ĐÃ SỬA LỖI FORMAT
         current_price = None
         if symbol:
             try:
-                with st.spinner("Loading real-time data..."):
+                with st.spinner("Đang tải dữ liệu..."):
                     data = load_data_for_live(symbol, asset_type)
                     if data is not None and not data.empty and len(data) > 0:
-                        # Xử lý dữ liệu an toàn
                         if 'Close' in data.columns and len(data['Close']) > 0:
-                            current_price = data['Close'].iloc[-1]
+                            current_price = float(data['Close'].iloc[-1])
+                            price_info = f"${current_price:.2f}"
+                            
                             if len(data) > 1:
-                                price_change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100)
+                                prev_price = float(data['Close'].iloc[-2])
+                                price_change = ((current_price - prev_price) / prev_price * 100)
+                                change_info = f"{price_change:+.2f}%"
                             else:
                                 price_change = 0
+                                change_info = "N/A"
                             
-                            # Hiển thị thông tin giá với UI đồng bộ
+                            # Hiển thị thông tin
                             col_price, col_change, col_value = st.columns(3)
                             with col_price:
-                                st.markdown(f"""
-                                <div class="metric-card">
-                                    <div class="metric-value">${current_price:.4f}</div>
-                                    <div class="metric-label">Current Price</div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                                st.metric("Giá hiện tại", price_info)
                             with col_change:
-                                change_color = "#00ff88" if price_change >= 0 else "#ff4444"
-                                st.markdown(f"""
-                                <div class="metric-card">
-                                    <div class="metric-value" style="color: {change_color}">{price_change:+.2f}%</div>
-                                    <div class="metric-label">24h Change</div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                                st.metric("Thay đổi", change_info)
                             with col_value:
                                 order_value = current_price * qty
-                                st.markdown(f"""
-                                <div class="metric-card">
-                                    <div class="metric-value">${order_value:.2f}</div>
-                                    <div class="metric-label">Order Value</div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                                st.metric("Giá trị lệnh", f"${order_value:.2f}")
                         else:
-                            st.warning("⚠️ Could not load price data for this symbol")
+                            st.warning("⚠️ Không thể lấy dữ liệu giá cho mã này")
                     else:
-                        st.warning("⚠️ No data available for this symbol")
+                        st.warning("⚠️ Không có dữ liệu cho mã này")
                             
             except Exception as e:
-                st.warning(f"⚠️ Could not load data for {symbol}: {str(e)}")
+                st.warning(f"⚠️ Không thể tải dữ liệu cho {symbol}")
         
-        # Trading buttons với UI đồng bộ
+        # Nút đặt lệnh
         st.markdown("""
         <div class="dashboard-card">
-            <h3>🎯 Execute Order</h3>
+            <h3>🎯 Thực hiện lệnh</h3>
         </div>
         """, unsafe_allow_html=True)
         
         col_buy, col_sell = st.columns(2)
         
         with col_buy:
-            if st.button("🟢 BUY / ADD MORE", 
+            if st.button("🟢 MUA / MUA THÊM", 
                         use_container_width=True, 
                         type="primary",
                         key="manual_buy"):
                 
                 if not symbol:
-                    st.error("❌ Please enter a symbol")
+                    st.error("❌ Vui lòng nhập mã")
                 elif qty <= 0:
-                    st.error("❌ Quantity must be greater than 0")
+                    st.error("❌ Số lượng phải lớn hơn 0")
                 else:
                     result = trader.place_order(symbol=symbol, qty=qty, side="buy", asset_type=asset_type)
                     if result:
@@ -1253,28 +1136,28 @@ if st.session_state.trader and st.session_state.trader.connected:
                             'quantity': qty,
                             'price': current_price if current_price else 0,
                             'strategy': 'Manual',
-                            'asset_type': asset_type,
-                            'order_value': current_price * qty if current_price else 0
+                            'asset_type': asset_type
                         }
                         performance_analytics.trade_journal.add_trade(trade_data)
+                        st.session_state.last_order_time = datetime.now()
                         st.balloons()
                         
-                        # Clear selected position sau khi trade
+                        # Clear selection
                         st.session_state.selected_position = None
                         st.session_state.suggested_qty = default_qty
                         time.sleep(2)
                         st.rerun()
         
         with col_sell:
-            if st.button("🔴 SELL / REDUCE", 
+            if st.button("🔴 BÁN / GIẢM", 
                         use_container_width=True, 
                         type="primary",
                         key="manual_sell"):
                 
                 if not symbol:
-                    st.error("❌ Please enter a symbol")
+                    st.error("❌ Vui lòng nhập mã")
                 elif qty <= 0:
-                    st.error("❌ Quantity must be greater than 0")
+                    st.error("❌ Số lượng phải lớn hơn 0")
                 else:
                     result = trader.place_order(symbol=symbol, qty=qty, side="sell", asset_type=asset_type)
                     if result:
@@ -1286,13 +1169,13 @@ if st.session_state.trader and st.session_state.trader.connected:
                             'quantity': qty,
                             'price': current_price if current_price else 0,
                             'strategy': 'Manual',
-                            'asset_type': asset_type,
-                            'order_value': current_price * qty if current_price else 0
+                            'asset_type': asset_type
                         }
                         performance_analytics.trade_journal.add_trade(trade_data)
+                        st.session_state.last_order_time = datetime.now()
                         st.balloons()
                         
-                        # Clear selected position sau khi trade
+                        # Clear selection
                         st.session_state.selected_position = None
                         st.session_state.suggested_qty = default_qty
                         time.sleep(2)
@@ -1300,7 +1183,7 @@ if st.session_state.trader and st.session_state.trader.connected:
         
         # Clear selection button
         if st.session_state.selected_position:
-            if st.button("🧹 Clear Selection", use_container_width=True):
+            if st.button("🧹 Xóa lựa chọn", use_container_width=True):
                 st.session_state.selected_position = None
                 st.session_state.suggested_qty = default_qty
                 st.rerun()
@@ -1309,173 +1192,78 @@ if st.session_state.trader and st.session_state.trader.connected:
     with tab4:
         st.markdown("""
         <div class="dashboard-card">
-            <h3>📉 Risk Management Dashboard</h3>
+            <h3>📉 Quản lý rủi ro</h3>
         </div>
         """, unsafe_allow_html=True)
         
         try:
             risk_fig, risk_metrics = create_risk_dashboard(trader)
             st.plotly_chart(risk_fig, use_container_width=True)
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                var_color = "inverse" if risk_metrics['var_1d'] > 1000 else "off" if risk_metrics['var_1d'] > 500 else "normal"
-                st.metric(
-                    "1-Day Value at Risk", 
-                    f"${risk_metrics['var_1d']:,.2f}",
-                    delta=f"{(risk_metrics['var_1d']/float(trader.get_account_info().portfolio_value)*100):.1f}% of portfolio",
-                    delta_color=var_color
-                )
-            
-            with col2:
-                dd_color = "inverse" if risk_metrics['max_drawdown'] > 20 else "off" if risk_metrics['max_drawdown'] > 10 else "normal"
-                st.metric(
-                    "Max Drawdown", 
-                    f"{risk_metrics['max_drawdown']:.1f}%",
-                    delta_color=dd_color
-                )
-            
-            with col3:
-                sharpe_color = "normal" if risk_metrics['sharpe_ratio'] > 1.5 else "off" if risk_metrics['sharpe_ratio'] > 0.5 else "inverse"
-                st.metric(
-                    "Sharpe Ratio", 
-                    f"{risk_metrics['sharpe_ratio']:.2f}",
-                    delta="Good" if risk_metrics['sharpe_ratio'] > 1 else "Poor" if risk_metrics['sharpe_ratio'] < 0 else "Average",
-                    delta_color=sharpe_color
-                )
-                
         except Exception as e:
-            st.error(f"Error loading risk dashboard: {e}")
+            st.error(f"Lỗi tải bảng quản lý rủi ro: {e}")
 
     # Tab 5: Performance Analytics
     with tab5:
         st.markdown("""
         <div class="dashboard-card">
-            <h3>📊 Performance Analytics & Reporting</h3>
+            <h3>📊 Phân tích hiệu suất</h3>
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("Generate Daily Report", key="generate_report"):
+        if st.button("Tạo báo cáo", key="generate_report"):
             try:
                 report = performance_analytics.generate_daily_report()
-                fig_equity, fig_gauges = performance_analytics.create_performance_charts(report)
                 
-                st.subheader("Daily Performance Summary")
+                st.subheader("Tóm tắt hiệu suất")
                 
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Daily P&L", f"${report['daily_pnl']:,.2f}")
-                col2.metric("Win Rate", f"{report['win_rate']:.1f}%")
-                col3.metric("Profit Factor", f"{report['profit_factor']:.2f}")
-                col4.metric("Total Trades", report['total_trades'])
-                
-                col5, col6, col7, col8 = st.columns(4)
-                col5.metric("Avg Trade Duration", report['avg_trade_duration'])
-                col6.metric("Sharpe Ratio", f"{report['sharpe_ratio']:.2f}")
-                col7.metric("Max Drawdown", f"{report['max_drawdown']:.1f}%")
-                col8.metric("Best Strategy", report['best_performing_strategy'])
-                
-                st.plotly_chart(fig_gauges, use_container_width=True)
-                if fig_equity.data:
-                    st.plotly_chart(fig_equity, use_container_width=True)
-                else:
-                    st.info("No equity curve data available yet. Start trading to see performance metrics.")
+                col1.metric("Lợi nhuận/Thua lỗ", f"${report['daily_pnl']:,.2f}")
+                col2.metric("Tỷ lệ thắng", f"{report['win_rate']:.1f}%")
+                col3.metric("Hệ số lợi nhuận", f"{report['profit_factor']:.2f}")
+                col4.metric("Tổng giao dịch", report['total_trades'])
                     
             except Exception as e:
-                st.error(f"Error generating performance report: {e}")
+                st.error(f"Lỗi tạo báo cáo: {e}")
 
-    # Tab 6: Pending Orders - TAB MỚI ĐÃ THÊM VÀ SỬA LỖI
+    # Tab 6: Pending Orders - ĐÃ SỬA HOÀN TOÀN
     with tab6:
         st.markdown("""
         <div class="dashboard-card">
-            <h3>⏳ Pending Orders Management</h3>
+            <h3>⏳ Quản lý lệnh chờ</h3>
         </div>
         """, unsafe_allow_html=True)
         
         st.info("💡 Quản lý các lệnh chờ của bạn tại đây. Bạn có thể hủy các lệnh không mong muốn để tránh wash trade.")
         
-        if st.button("🔄 Refresh Pending Orders", key="refresh_pending", use_container_width=True):
+        if st.button("🔄 Làm mới lệnh chờ", key="refresh_pending", use_container_width=True):
             st.rerun()
             
         try:
-            # Lấy danh sách lệnh chờ - ĐÃ SỬA LỖI PARAMETER
-            all_orders = trader.get_orders()
-            pending_orders = [order for order in all_orders if order.status in ['new', 'partially_filled', 'pending_new']]
+            # Lấy danh sách lệnh chờ - ĐÃ SỬA HOÀN TOÀN
+            pending_orders = trader.get_orders(status_filter='open')
             
             if pending_orders:
-                st.subheader(f"📋 Pending Orders ({len(pending_orders)})")
+                st.subheader(f"📋 Lệnh chờ ({len(pending_orders)})")
+                st.info(f"⏰ Thời gian hiện tại: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 for order in pending_orders:
-                    with st.container():
-                        col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-                        
-                        with col1:
-                            st.write(f"**{order.symbol}**")
-                            st.write(f"Side: {order.side.value} | Qty: {float(order.qty):.4f}")
-                            
-                        with col2:
-                            st.write(f"Type: {order.type.value}")
-                            st.write(f"Status: {order.status.value}")
-                            
-                        with col3:
-                            if order.filled_qty:
-                                filled_pct = (float(order.filled_qty) / float(order.qty)) * 100
-                                st.write(f"Filled: {filled_pct:.1f}%")
-                            else:
-                                st.write("Filled: 0%")
-                                
-                        with col4:
-                            if st.button("❌ Cancel", key=f"cancel_{order.id}", use_container_width=True):
-                                if trader.cancel_order(order.id):
-                                    time.sleep(1)
-                                    st.rerun()
-                        
-                        st.markdown("---")
+                    display_pending_order(order)
             else:
-                st.success("🎉 No pending orders! All orders have been filled or canceled.")
+                st.success("🎉 Không có lệnh chờ nào! Tất cả lệnh đã được khớp hoặc hủy.")
                 
         except Exception as e:
-            st.error(f"Error loading pending orders: {e}")
+            st.error(f"Lỗi tải lệnh chờ: {e}")
 
 else:
     # Welcome Screen
     st.markdown("""
     <div class="dashboard-card">
-        <h2 style="text-align: center; margin-bottom: 2rem;">🚀 Welcome to Live Trading Pro</h2>
+        <h2 style="text-align: center; margin-bottom: 2rem;">🚀 Chào mừng đến với Live Trading Pro</h2>
         <p style="text-align: center; color: #8898aa; font-size: 1.1rem;">
-            Connect your Alpaca account to start trading with advanced features
+            Kết nối tài khoản Alpaca của bạn để bắt đầu giao dịch
         </p>
     </div>
     """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="feature-icon">🔌</div>
-            <div class="metric-value">Connect</div>
-            <div class="metric-label">Alpaca API Integration</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="feature-icon">📈</div>
-            <div class="metric-value">Trade</div>
-            <div class="metric-label">Multiple Asset Classes</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
-        <div class="metric-card">
-            <div class="feature-icon">🛡️</div>
-            <div class="metric-value">Manage</div>
-            <div class="metric-label">Advanced Risk Analytics</div>
-        </div>
-        """, unsafe_allow_html=True)
 
 # Footer
 st.markdown("""
