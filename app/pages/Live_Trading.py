@@ -19,6 +19,13 @@ import requests
 import re
 from textblob import TextBlob
 
+try:
+    import MetaTrader5 as mt5
+    MT5_AVAILABLE = True
+except ImportError:
+    MT5_AVAILABLE = False
+    st.warning("⚠️ Thư viện MetaTrader5 chưa được cài đặt. Chạy: pip install MetaTrader5")
+
 # --- Page Configuration ---
 st.set_page_config(
     page_title="🚀 Live Trading Pro", 
@@ -177,6 +184,41 @@ st.markdown("""
         justify-content: space-between;
         align-items: center;
     }
+    .mt5-order-panel {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .mt5-button-buy {
+        background: linear-gradient(135deg, #00ff88, #00cc6a);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 12px 24px;
+        font-weight: bold;
+        width: 100%;
+        margin: 5px 0;
+    }
+    .mt5-button-sell {
+        background: linear-gradient(135deg, #ff4444, #cc0000);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 12px 24px;
+        font-weight: bold;
+        width: 100%;
+        margin: 5px 0;
+    }
+    .mt5-button-cancel {
+        background: linear-gradient(135deg, #ff9500, #ff6b00);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -252,7 +294,7 @@ def load_data_for_live(symbol, asset_type):
         st.error(f"Lỗi tải dữ liệu cho {symbol}: {str(e)}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=60)  # Cache 60 giây để lấy giá mới
+@st.cache_data(ttl=60)
 def get_live_crypto_price_ccxt(symbol):
     """
     Lấy giá crypto THỰC TẾ từ CCXT (các sàn)
@@ -293,6 +335,361 @@ def get_live_crypto_price_ccxt(symbol):
     # Nếu tất cả sàn đều lỗi
     st.warning(f"Không thể lấy giá live cho {symbol} từ CCXT.")
     return None
+
+# --- Lớp MT5Trader với đầy đủ tính năng ---
+class MT5Trader:
+    def __init__(self):
+        self.connected = False
+        self.account_info = None
+        
+    def connect(self, account, password, server, path_to_mt5):
+        """Kết nối với MT5"""
+        try:
+            if not MT5_AVAILABLE:
+                st.error("Thư viện MetaTrader5 chưa được cài đặt")
+                return False
+                
+            # Khởi tạo MT5
+            if not mt5.initialize(path=path_to_mt5, login=account, password=password, server=server):
+                st.error(f"Không thể khởi tạo MT5: {mt5.last_error()}")
+                return False
+            
+            self.connected = True
+            self.account_info = mt5.account_info()
+            st.success(f"✅ Đã kết nối MT5 thành công! Tài khoản: {self.account_info.login}")
+            return True
+            
+        except Exception as e:
+            st.error(f"Lỗi kết nối MT5: {e}")
+            return False
+    
+    def disconnect(self):
+        """Ngắt kết nối MT5"""
+        if self.connected:
+            mt5.shutdown()
+            self.connected = False
+            st.success("✅ Đã ngắt kết nối MT5")
+    
+    def get_account_info(self):
+        """Lấy thông tin tài khoản"""
+        if not self.connected:
+            return None
+        return mt5.account_info()
+    
+    def get_symbols(self):
+        """Lấy danh sách symbol có sẵn"""
+        if not self.connected:
+            return []
+        symbols = mt5.symbols_get()
+        return [s.name for s in symbols] if symbols else []
+    
+    def get_symbol_info(self, symbol):
+        """Lấy thông tin chi tiết của symbol"""
+        if not self.connected:
+            return None
+        return mt5.symbol_info(symbol)
+    
+    def get_tick_data(self, symbol):
+        """Lấy dữ liệu tick hiện tại"""
+        if not self.connected:
+            return None
+        return mt5.symbol_info_tick(symbol)
+    
+    def get_ohlc_data(self, symbol, timeframe=mt5.TIMEFRAME_M15, count=100):
+        """Lấy dữ liệu OHLC cho biểu đồ"""
+        if not self.connected:
+            return None
+        
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
+        if rates is None:
+            return None
+            
+        df = pd.DataFrame(rates)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        df.set_index('time', inplace=True)
+        return df
+    
+    def get_positions(self):
+        """Lấy danh sách vị thế đang mở"""
+        if not self.connected:
+            return []
+        return mt5.positions_get()
+    
+    def get_orders(self):
+        """Lấy danh sách lệnh chờ"""
+        if not self.connected:
+            return []
+        return mt5.orders_get()
+    
+    def place_order(self, symbol, volume, order_type, price=0, sl=0, tp=0, deviation=20):
+        """Đặt lệnh trên MT5"""
+        if not self.connected:
+            return None
+            
+        # Lấy thông tin symbol
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            st.error(f"Symbol {symbol} không tồn tại")
+            return None
+        
+        # Kiểm tra symbol có được chọn không
+        if not symbol_info.visible:
+            if not mt5.symbol_select(symbol, True):
+                st.error(f"Không thể chọn symbol {symbol}")
+                return None
+        
+        # Lấy giá hiện tại
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            st.error(f"Không thể lấy giá cho {symbol}")
+            return None
+        
+        # Xác định loại lệnh và giá
+        if order_type.upper() == "BUY":
+            order_type_mt5 = mt5.ORDER_TYPE_BUY
+            order_price = tick.ask
+        elif order_type.upper() == "SELL":
+            order_type_mt5 = mt5.ORDER_TYPE_SELL
+            order_price = tick.bid
+        else:
+            st.error("Loại lệnh không hợp lệ")
+            return None
+        
+        # Nếu price được chỉ định (cho lệnh limit/stop)
+        if price > 0:
+            order_price = price
+        
+        # Tạo request
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": volume,
+            "type": order_type_mt5,
+            "price": order_price,
+            "sl": sl,
+            "tp": tp,
+            "deviation": deviation,
+            "magic": 234000,
+            "comment": "Order from Streamlit App",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        # Gửi lệnh
+        result = mt5.order_send(request)
+        return result
+    
+    def place_pending_order(self, symbol, volume, order_type, price, sl=0, tp=0, expiration=0):
+        """Đặt lệnh chờ"""
+        if not self.connected:
+            return None
+            
+        # Xác định loại lệnh chờ
+        order_types = {
+            "BUY_LIMIT": mt5.ORDER_TYPE_BUY_LIMIT,
+            "SELL_LIMIT": mt5.ORDER_TYPE_SELL_LIMIT,
+            "BUY_STOP": mt5.ORDER_TYPE_BUY_STOP,
+            "SELL_STOP": mt5.ORDER_TYPE_SELL_STOP
+        }
+        
+        if order_type not in order_types:
+            st.error("Loại lệnh chờ không hợp lệ")
+            return None
+        
+        request = {
+            "action": mt5.TRADE_ACTION_PENDING,
+            "symbol": symbol,
+            "volume": volume,
+            "type": order_types[order_type],
+            "price": price,
+            "sl": sl,
+            "tp": tp,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": "Pending Order from Streamlit",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        if expiration > 0:
+            request["expiration"] = expiration
+        
+        result = mt5.order_send(request)
+        return result
+    
+    def close_position(self, ticket):
+        """Đóng vị thế"""
+        if not self.connected:
+            return None
+            
+        position = mt5.positions_get(ticket=ticket)
+        if not position:
+            st.error(f"Không tìm thấy vị thế với ticket {ticket}")
+            return None
+        
+        position = position[0]
+        symbol = position.symbol
+        volume = position.volume
+        order_type = mt5.ORDER_TYPE_SELL if position.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            return None
+        
+        price = tick.ask if order_type == mt5.ORDER_TYPE_SELL else tick.bid
+        
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": volume,
+            "type": order_type,
+            "position": ticket,
+            "price": price,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": "Close position",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        
+        result = mt5.order_send(request)
+        return result
+    
+    def cancel_order(self, ticket):
+        """Hủy lệnh chờ"""
+        if not self.connected:
+            return None
+            
+        request = {
+            "action": mt5.TRADE_ACTION_REMOVE,
+            "order": ticket,
+        }
+        
+        result = mt5.order_send(request)
+        return result
+
+# --- Các hàm hiển thị cho MT5 ---
+def display_mt5_position(position):
+    """Hiển thị vị thế MT5"""
+    try:
+        symbol = position.symbol
+        volume = position.volume
+        profit = position.profit
+        price_open = position.price_open
+        price_current = position.price_current
+        sl = position.sl
+        tp = position.tp
+        type_str = "BUY" if position.type == mt5.ORDER_TYPE_BUY else "SELL"
+        
+        pl_class = "" if profit >= 0 else "sell"
+        badge_class = "badge-profit" if profit >= 0 else "badge-loss"
+        
+        st.markdown(f"""
+        <div class="position-item {pl_class}">
+            <div style="display: flex; justify-content: between; align-items: center;">
+                <div>
+                    <strong>{symbol}</strong>
+                    <span class="badge {badge_class}">{type_str} {volume:.2f} lots</span>
+                </div>
+                <div style="text-align: right;">
+                    <div style="color: {'#00ff88' if profit >= 0 else '#ff4444'}; font-weight: bold;">
+                        ${profit:.2f}
+                    </div>
+                    <div style="font-size: 0.8em; color: #8898aa;">
+                        Open: ${price_open:.5f} • Current: ${price_current:.5f}
+                    </div>
+                    <div style="font-size: 0.7em; color: #8898aa;">
+                        SL: ${sl:.5f if sl > 0 else 'None'} • TP: ${tp:.5f if tp > 0 else 'None'}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Nút đóng lệnh
+        if st.button(f"🔒 Đóng {symbol}", key=f"close_{position.ticket}", use_container_width=True):
+            result = mt5_trader.close_position(position.ticket)
+            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                st.success(f"✅ Đã đóng vị thế {symbol}")
+                time.sleep(2)
+                st.rerun()
+                
+    except Exception as e:
+        st.error(f"Lỗi hiển thị position: {e}")
+
+def display_mt5_order(order):
+    """Hiển thị lệnh chờ MT5"""
+    try:
+        symbol = order.symbol
+        volume = order.volume_initial
+        price_open = order.price_open
+        sl = order.sl
+        tp = order.tp
+        
+        order_types = {
+            2: "BUY_LIMIT",
+            3: "SELL_LIMIT", 
+            4: "BUY_STOP",
+            5: "SELL_STOP"
+        }
+        type_str = order_types.get(order.type, "UNKNOWN")
+        
+        st.markdown(f"""
+        <div class="pending-order">
+            <div style="flex: 1;">
+                <strong>{symbol}</strong> - {type_str}
+                <div style="font-size: 0.9em; color: #8898aa;">
+                    Volume: {volume:.2f} • Price: ${price_open:.5f}
+                </div>
+                <div style="font-size: 0.8em; color: #8898aa;">
+                    SL: ${sl:.5f if sl > 0 else 'None'} • TP: ${tp:.5f if tp > 0 else 'None'}
+                </div>
+            </div>
+            <div>
+                <button class="mt5-button-cancel" onclick="this.disabled=true; this.innerHTML='Đang hủy...'">
+                    ❌ Hủy
+                </button>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Lỗi hiển thị order: {e}")
+
+def create_mt5_chart(symbol, timeframe=mt5.TIMEFRAME_M15, count=100):
+    """Tạo biểu đồ MT5"""
+    try:
+        if 'mt5_trader' not in st.session_state or not st.session_state.mt5_trader.connected:
+            return None
+            
+        data = st.session_state.mt5_trader.get_ohlc_data(symbol, timeframe, count)
+        if data is None or data.empty:
+            return None
+        
+        # Tạo biểu đồ nến
+        fig = go.Figure(data=[go.Candlestick(
+            x=data.index,
+            open=data['open'],
+            high=data['high'],
+            low=data['low'],
+            close=data['close'],
+            name=symbol
+        )])
+        
+        fig.update_layout(
+            title=f"{symbol} - Biểu đồ giá",
+            xaxis_title="Thời gian",
+            yaxis_title="Giá",
+            template="plotly_dark",
+            height=500,
+            showlegend=False
+        )
+        
+        return fig
+        
+    except Exception as e:
+        st.error(f"Lỗi tạo biểu đồ: {e}")
+        return None
 
 # --- Lớp AlpacaTrader ĐÃ SỬA LỖI HOÀN TOÀN ---
 class AlpacaTrader:
@@ -814,6 +1211,10 @@ if 'suggested_qty' not in st.session_state:
     st.session_state.suggested_qty = 1.0
 if 'last_order_time' not in st.session_state:
     st.session_state.last_order_time = None
+if 'mt5_trader' not in st.session_state:
+    st.session_state.mt5_trader = MT5Trader() if MT5_AVAILABLE else None
+if 'selected_mt5_symbol' not in st.session_state:
+    st.session_state.selected_mt5_symbol = "EURUSD"
 
 # --- Sidebar ---
 with st.sidebar:
@@ -919,8 +1320,8 @@ if st.session_state.trader and st.session_state.trader.connected:
 
     # Tabs
     tab_titles = ["📊 Tổng quan", "📈 Vị thế", "🛠️ Giao dịch", 
-                  "📉 Quản lý rủi ro", "📊 Hiệu suất", "⏳ Lệnh chờ"]
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_titles)
+                  "📉 Quản lý rủi ro", "📊 Hiệu suất", "⏳ Lệnh chờ", "📈 MT5 Trading"]
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(tab_titles)
 
     # Tab 1: Overview
     with tab1:
@@ -990,30 +1391,23 @@ if st.session_state.trader and st.session_state.trader.connected:
                     display_position(position)
                     col1, col2 = st.columns(2)
                     with col1:
-                        # CODE MỚI ĐÃ SỬA
                         if st.button(f"📈 Mua thêm", key=f"buy_{position.symbol}", use_container_width=True):
-                            # Tự động nhận diện asset type
-                            asset_type = "Crypto" if position.symbol.endswith("USD") else "Stocks"
                             st.session_state.selected_position = {
                                 'symbol': position.symbol,
                                 'action': 'buy',
                                 'current_qty': float(position.qty),
-                                'asset_type': asset_type  # <-- ĐÃ SỬA
+                                'asset_type': "Stocks"  # Mặc định là Stocks
                             }
-                            st.success(f"Đã chọn {position.symbol} ({asset_type}) để MUA - kiểm tra tab Giao dịch!")
+                            st.success(f"Đã chọn {position.symbol} để MUA - kiểm tra tab Giao dịch!")
                     with col2:
-                        # CODE MỚI ĐÃ SỬA
-                        with col2:
-                            if st.button(f"📉 Bán", key=f"sell_{position.symbol}", use_container_width=True):
-                                # Tự động nhận diện asset type
-                                asset_type = "Crypto" if position.symbol.endswith("USD") else "Stocks"
-                                st.session_state.selected_position = {
-                                    'symbol': position.symbol,
-                                    'action': 'sell', 
-                                    'current_qty': float(position.qty),
-                                    'asset_type': asset_type # <-- ĐÃ SỬA
-                                }
-                                st.success(f"Đã chọn {position.symbol} ({asset_type}) để BÁN - kiểm tra tab Giao dịch!")
+                        if st.button(f"📉 Bán", key=f"sell_{position.symbol}", use_container_width=True):
+                            st.session_state.selected_position = {
+                                'symbol': position.symbol,
+                                'action': 'sell', 
+                                'current_qty': float(position.qty),
+                                'asset_type': "Stocks"
+                            }
+                            st.success(f"Đã chọn {position.symbol} để BÁN - kiểm tra tab Giao dịch!")
                     st.markdown("---")
             else:
                 st.info("💰 Không có vị thế nào. Bắt đầu giao dịch để xem vị thế ở đây!")
@@ -1043,10 +1437,10 @@ if st.session_state.trader and st.session_state.trader.connected:
             default_asset_type = selected.get('asset_type', 'Stocks')
             suggested_qty = selected['current_qty'] * 0.1
         else:
-            default_symbol = "BTCUSD"
+            default_symbol = "AAPL"
             default_action = "buy"
-            default_asset_type = "Crypto"
-            suggested_qty = 0.001
+            default_asset_type = "Stocks"
+            suggested_qty = 1.0
         
         # Trading form
         col1, col2 = st.columns(2)
@@ -1259,7 +1653,7 @@ if st.session_state.trader and st.session_state.trader.connected:
                         time.sleep(2)
                         st.rerun()
         
-        #st.button Clear selection button
+        # Clear selection button
         if st.session_state.selected_position:
             if st.button("🧹 Xóa lựa chọn", use_container_width=True):
                 st.session_state.selected_position = None
@@ -1332,21 +1726,126 @@ if st.session_state.trader and st.session_state.trader.connected:
         except Exception as e:
             st.error(f"Lỗi tải lệnh chờ: {e}")
 
-else:
-    # Welcome Screen
-    st.markdown("""
-    <div class="dashboard-card">
-        <h2 style="text-align: center; margin-bottom: 2rem;">🚀 Chào mừng đến với Live Trading Pro</h2>
-        <p style="text-align: center; color: #8898aa; font-size: 1.1rem;">
-            Kết nối tài khoản Alpaca của bạn để bắt đầu giao dịch
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Footer
-st.markdown("""
-<div style='text-align: center; padding: 3rem; color: #8898aa;'>
-    <p style='margin: 0; font-size: 0.9rem;'>Built with ❤️ using Streamlit • Professional Trading Platform</p>
-    <p style='margin: 0.5rem 0 0 0; font-size: 0.8rem; opacity: 0.7;'>Live Trading Pro v2.0</p>
-</div>
-""", unsafe_allow_html=True)
+    # Tab 7: MT5 Trading - TAB MỚI HOÀN CHỈNH
+    with tab7:
+        st.markdown("""
+        <div class="dashboard-card">
+            <h3>📈 MetaTrader 5 Trading</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if not MT5_AVAILABLE:
+            st.error("""
+            **Thư viện MetaTrader5 chưa được cài đặt!**
+            
+            Để sử dụng tính năng này, hãy cài đặt:
+            ```bash
+            pip install MetaTrader5
+            ```
+            
+            Và đảm bảo MetaTrader 5 đang chạy trên máy của bạn.
+            """)
+        else:
+            col_connect, col_main = st.columns([1, 3])
+            
+            with col_connect:
+                st.subheader("🔗 Kết nối MT5")
+                
+                mt5_account = st.number_input("Số tài khoản", value=123456, key="mt5_account")
+                mt5_password = st.text_input("Mật khẩu", type="password", key="mt5_password")
+                mt5_server = st.text_input("Server", value="YourBrokerServer", key="mt5_server")
+                mt5_path = st.text_input("Đường dẫn MT5", 
+                                       value="C:/Program Files/MetaTrader 5/terminal64.exe", 
+                                       key="mt5_path")
+                
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("🔌 Kết nối MT5", use_container_width=True):
+                        with st.spinner("Đang kết nối MT5..."):
+                            if st.session_state.mt5_trader.connect(mt5_account, mt5_password, mt5_server, mt5_path):
+                                st.rerun()
+                
+                with col_btn2:
+                    if st.session_state.mt5_trader.connected:
+                        if st.button("🔒 Ngắt kết nối", use_container_width=True):
+                            st.session_state.mt5_trader.disconnect()
+                            st.rerun()
+                
+                # Hiển thị thông tin tài khoản nếu đã kết nối
+                if st.session_state.mt5_trader.connected:
+                    account_info = st.session_state.mt5_trader.get_account_info()
+                    if account_info:
+                        st.success(f"✅ Đã kết nối: {account_info.login}")
+                        st.info(f"""
+                        **Thông tin tài khoản:**
+                        - Broker: {account_info.company}
+                        - Currency: {account_info.currency}
+                        - Leverage: 1:{account_info.leverage}
+                        - Balance: ${account_info.balance:.2f}
+                        - Equity: ${account_info.equity:.2f}
+                        """)
+            
+            with col_main:
+                if st.session_state.mt5_trader.connected:
+                    # Phần chính - Biểu đồ và giao dịch
+                    col_chart, col_trade = st.columns([2, 1])
+                    
+                    with col_chart:
+                        st.subheader("📊 Biểu đồ giá")
+                        
+                        # Chọn symbol và timeframe
+                        col_sym, col_tf = st.columns(2)
+                        with col_sym:
+                            available_symbols = st.session_state.mt5_trader.get_symbols()
+                            if available_symbols:
+                                selected_symbol = st.selectbox(
+                                    "Chọn symbol",
+                                    available_symbols,
+                                    index=available_symbols.index(st.session_state.selected_mt5_symbol) 
+                                    if st.session_state.selected_mt5_symbol in available_symbols else 0,
+                                    key="mt5_symbol_select"
+                                )
+                                st.session_state.selected_mt5_symbol = selected_symbol
+                            else:
+                                selected_symbol = st.text_input("Nhập symbol", value="EURUSD", key="mt5_symbol_input")
+                                st.session_state.selected_mt5_symbol = selected_symbol
+                        
+                        with col_tf:
+                            timeframe = st.selectbox(
+                                "Khung thời gian",
+                                ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1"],
+                                index=2,
+                                key="mt5_timeframe"
+                            )
+                            
+                            # Map timeframe string to MT5 constant
+                            tf_map = {
+                                "M1": mt5.TIMEFRAME_M1,
+                                "M5": mt5.TIMEFRAME_M5,
+                                "M15": mt5.TIMEFRAME_M15,
+                                "M30": mt5.TIMEFRAME_M30,
+                                "H1": mt5.TIMEFRAME_H1,
+                                "H4": mt5.TIMEFRAME_H4,
+                                "D1": mt5.TIMEFRAME_D1,
+                                "W1": mt5.TIMEFRAME_W1,
+                                "MN1": mt5.TIMEFRAME_MN1
+                            }
+                        
+                        # Hiển thị biểu đồ
+                        if selected_symbol:
+                            chart = create_mt5_chart(selected_symbol, tf_map[timeframe])
+                            if chart:
+                                st.plotly_chart(chart, use_container_width=True)
+                            else:
+                                st.warning("Không thể tải dữ liệu biểu đồ")
+                            
+                            # Hiển thị giá hiện tại
+                            tick = st.session_state.mt5_trader.get_tick_data(selected_symbol)
+                            if tick:
+                                col_bid, col_ask, col_spread = st.columns(3)
+                                with col_bid:
+                                    st.metric("Bid", f"{tick.bid:.5f}")
+                                with col_ask:
+                                    st.metric("Ask", f"{tick.ask:.5f}")
+                                with col_spread:
+                                    spread = (tick.ask - tick.bid) * 10000 
