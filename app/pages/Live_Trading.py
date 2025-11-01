@@ -1854,10 +1854,10 @@ if st.session_state.trader and st.session_state.trader.connected:
                                 with col_trade:
                                     st.subheader("🎯 Giao dịch")
                                     
-                            # Thông tin symbol
-                            symbol_info = st.session_state.mt5_trader.get_symbol_info(selected_symbol)
-                            if symbol_info:
-                                st.info(f"""
+                                    # Thông tin symbol
+                                    symbol_info = st.session_state.mt5_trader.get_symbol_info(selected_symbol)
+                                    if symbol_info:
+                                        st.info(f"""
                                         **Thông tin {selected_symbol}:**
                                         - Point: {symbol_info.point}
                                         - Digits: {symbol_info.digits}
@@ -1891,9 +1891,9 @@ if st.session_state.trader and st.session_state.trader.connected:
                                                 use_container_width=True,
                                                 type="primary",
                                                 key="mt5_buy"):
-                                if selected_symbol and volume > 0:
-                                    # Tính SL và TP từ pips
-                                    tick = st.session_state.mt5_trader.get_tick_data(selected_symbol)
+                                    if selected_symbol and volume > 0:
+                                        # Tính SL và TP từ pips
+                                        tick = st.session_state.mt5_trader.get_tick_data(selected_symbol)
                                         if tick:
                                             sl_price = tick.ask - (stop_loss * 0.0001) if stop_loss > 0 else 0
                                             tp_price = tick.ask + (take_profit * 0.0001) if take_profit > 0 else 0
@@ -2052,9 +2052,9 @@ if st.session_state.trader and st.session_state.trader.connected:
                                 
                                 st.plotly_chart(fig_demo, use_container_width=True)
 
-            else:
-                # Welcome Screen
-                st.markdown("""
+            
+# Welcome Screen
+st.markdown("""
                 <div class="dashboard-card">
                     <h2 style="text-align: center; margin-bottom: 2rem;">🚀 Chào mừng đến với Live Trading Pro</h2>
                     <p style="text-align: center; color: #8898aa; font-size: 1.1rem;">
@@ -2063,8 +2063,8 @@ if st.session_state.trader and st.session_state.trader.connected:
                 </div>
                 """, unsafe_allow_html=True)
 
-            # Footer
-            st.markdown("""
+# Footer
+st.markdown("""
             <div style='text-align: center; padding: 3rem; color: #8898aa;'>
                 <p style='margin: 0; font-size: 0.9rem;'>Built with ❤️ using Streamlit • Professional Trading Platform</p>
                 <p style='margin: 0.5rem 0 0 0; font-size: 0.8rem; opacity: 0.7;'>Live Trading Pro v2.0 • MT5 Integration</p>
