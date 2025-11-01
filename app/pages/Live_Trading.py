@@ -935,23 +935,29 @@ if st.session_state.trader and st.session_state.trader.connected:
                     display_position(position)
                     col1, col2 = st.columns(2)
                     with col1:
+                        # CODE MỚI ĐÃ SỬA
                         if st.button(f"📈 Mua thêm", key=f"buy_{position.symbol}", use_container_width=True):
+                            # Tự động nhận diện asset type
+                            asset_type = "Crypto" if position.symbol.endswith("USD") else "Stocks"
                             st.session_state.selected_position = {
                                 'symbol': position.symbol,
                                 'action': 'buy',
                                 'current_qty': float(position.qty),
-                                'asset_type': "Stocks"  # Mặc định là Stocks
+                                'asset_type': asset_type  # <-- ĐÃ SỬA
                             }
-                            st.success(f"Đã chọn {position.symbol} để MUA - kiểm tra tab Giao dịch!")
+                            st.success(f"Đã chọn {position.symbol} ({asset_type}) để MUA - kiểm tra tab Giao dịch!")
+                    # CODE MỚI ĐÃ SỬA
                     with col2:
                         if st.button(f"📉 Bán", key=f"sell_{position.symbol}", use_container_width=True):
+                                # Tự động nhận diện asset type
+                            asset_type = "Crypto" if position.symbol.endswith("USD") else "Stocks"
                             st.session_state.selected_position = {
                                 'symbol': position.symbol,
                                 'action': 'sell', 
                                 'current_qty': float(position.qty),
-                                'asset_type': "Stocks"
+                                'asset_type': asset_type # <-- ĐÃ SỬA
                             }
-                            st.success(f"Đã chọn {position.symbol} để BÁN - kiểm tra tab Giao dịch!")
+                            st.success(f"Đã chọn {position.symbol} ({asset_type}) để BÁN - kiểm tra tab Giao dịch!")
                     st.markdown("---")
             else:
                 st.info("💰 Không có vị thế nào. Bắt đầu giao dịch để xem vị thế ở đây!")
@@ -981,10 +987,10 @@ if st.session_state.trader and st.session_state.trader.connected:
             default_asset_type = selected.get('asset_type', 'Stocks')
             suggested_qty = selected['current_qty'] * 0.1
         else:
-            default_symbol = "AAPL"
+            default_symbol = "BTCUSD"
             default_action = "buy"
-            default_asset_type = "Stocks"
-            suggested_qty = 1.0
+            default_asset_type = "Crypto"
+            suggested_qty = 0.001
         
         # Trading form
         col1, col2 = st.columns(2)
