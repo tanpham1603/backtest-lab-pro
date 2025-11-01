@@ -1849,3 +1849,224 @@ if st.session_state.trader and st.session_state.trader.connected:
                                     st.metric("Ask", f"{tick.ask:.5f}")
                                 with col_spread:
                                     spread = (tick.ask - tick.bid) * 10000 
+                                    st.metric("Spread", f"{(tick.ask - tick.bid) * 10000:.1f} pips")
+                    
+                                with col_trade:
+                                    st.subheader("🎯 Giao dịch")
+                                    
+                            # Thông tin symbol
+                            symbol_info = st.session_state.mt5_trader.get_symbol_info(selected_symbol)
+                            if symbol_info:
+                                st.info(f"""
+                                        **Thông tin {selected_symbol}:**
+                                        - Point: {symbol_info.point}
+                                        - Digits: {symbol_info.digits}
+                                        - Trade Stops Level: {symbol_info.trade_stops_level}
+                                        - Trade Contract Size: {symbol_info.trade_contract_size}
+                                        """)
+                                    
+                            # Form đặt lệnh
+                            volume = st.number_input("Khối lượng (lots)", 
+                                                        min_value=0.01, 
+                                                        value=0.1, 
+                                                        step=0.01,
+                                                        key="mt5_volume")
+                                    
+                            col_sl, col_tp = st.columns(2)
+                            with col_sl:
+                                stop_loss = st.number_input("Stop Loss (pips)", 
+                                                                min_value=0, 
+                                                                value=0,
+                                                                key="mt5_sl")
+                            with col_tp:
+                                take_profit = st.number_input("Take Profit (pips)", 
+                                                                    min_value=0, 
+                                                                    value=0,
+                                                                    key="mt5_tp")
+                                    
+                            # Nút đặt lệnh
+                            col_buy, col_sell = st.columns(2)
+                            with col_buy:
+                                if st.button("🟢 BUY NOW", 
+                                                use_container_width=True,
+                                                type="primary",
+                                                key="mt5_buy"):
+                                if selected_symbol and volume > 0:
+                                    # Tính SL và TP từ pips
+                                    tick = st.session_state.mt5_trader.get_tick_data(selected_symbol)
+                                        if tick:
+                                            sl_price = tick.ask - (stop_loss * 0.0001) if stop_loss > 0 else 0
+                                            tp_price = tick.ask + (take_profit * 0.0001) if take_profit > 0 else 0
+                                                    
+                                            result = st.session_state.mt5_trader.place_order(
+                                                        symbol=selected_symbol,
+                                                        volume=volume,
+                                                        order_type="BUY",
+                                                        sl=sl_price,
+                                                        tp=tp_price
+                                                    )
+                                                    
+                                            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                                                st.success(f"✅ Lệnh BUY {volume} lots {selected_symbol} thành công!")
+                                                st.balloons()
+                                                time.sleep(2)
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Lỗi đặt lệnh: {result.comment if result else 'Unknown error'}")
+                                    
+                            with col_sell:
+                                if st.button("🔴 SELL NOW", 
+                                                use_container_width=True,
+                                                type="primary",
+                                                key="mt5_sell"):
+                                    if selected_symbol and volume > 0:
+                                        # Tính SL và TP từ pips
+                                        tick = st.session_state.mt5_trader.get_tick_data(selected_symbol)
+                                        if tick:
+                                            sl_price = tick.bid + (stop_loss * 0.0001) if stop_loss > 0 else 0
+                                            tp_price = tick.bid - (take_profit * 0.0001) if take_profit > 0 else 0
+                                                    
+                                            result = st.session_state.mt5_trader.place_order(
+                                                        symbol=selected_symbol,
+                                                        volume=volume,
+                                                        order_type="SELL",
+                                                        sl=sl_price,
+                                                        tp=tp_price
+                                                    )
+                                                    
+                                            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                                                st.success(f"✅ Lệnh SELL {volume} lots {selected_symbol} thành công!")
+                                                st.balloons()
+                                                time.sleep(2)
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Lỗi đặt lệnh: {result.comment if result else 'Unknown error'}")
+                                    
+                            # Lệnh chờ
+                            st.markdown("---")
+                            st.subheader("⏰ Lệnh chờ")
+                                    
+                            col_order_type, col_order_price = st.columns(2)
+                            with col_order_type:
+                                pending_type = st.selectbox(
+                                            "Loại lệnh",
+                                            ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"],
+                                            key="mt5_pending_type"
+                                        )
+                            with col_order_price:
+                                pending_price = st.number_input(
+                                            "Giá kích hoạt",
+                                            min_value=0.00001,
+                                            value=0.00000,
+                                            format="%.5f",
+                                            key="mt5_pending_price"
+                                        )
+                                    
+                            if st.button("📝 ĐẶT LỆNH CHỜ", use_container_width=True):
+                                if selected_symbol and volume > 0 and pending_price > 0:
+                                    result = st.session_state.mt5_trader.place_pending_order(
+                                                symbol=selected_symbol,
+                                                volume=volume,
+                                                order_type=pending_type,
+                                                price=pending_price,
+                                                sl=0,
+                                                tp=0
+                                            )
+                                            
+                                    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                                        st.success(f"✅ Đã đặt lệnh {pending_type} {volume} lots {selected_symbol}!")
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Lỗi đặt lệnh chờ: {result.comment if result else 'Unknown error'}")
+                            
+                            # Phần quản lý vị thế và lệnh
+                            if st.session_state.mt5_trader.connected:
+                                st.markdown("---")
+                                
+                                col_positions, col_orders = st.columns(2)
+                                
+                                with col_positions:
+                                    st.subheader("📈 Vị thế mở")
+                                    
+                                    if st.button("🔄 Làm mới vị thế", key="refresh_mt5_positions"):
+                                        st.rerun()
+                                        
+                                    positions = st.session_state.mt5_trader.get_positions()
+                                    if positions:
+                                        for position in positions:
+                                            display_mt5_position(position)
+                                    else:
+                                        st.info("Không có vị thế nào đang mở")
+                                
+                                with col_orders:
+                                    st.subheader("⏳ Lệnh chờ")
+                                    
+                                    if st.button("🔄 Làm mới lệnh", key="refresh_mt5_orders"):
+                                        st.rerun()
+                                        
+                                    orders = st.session_state.mt5_trader.get_orders()
+                                    if orders:
+                                        for order in orders:
+                                            col1, col2 = st.columns([3, 1])
+                                            with col1:
+                                                st.write(f"**{order.symbol}** - {order.type}")
+                                                st.write(f"Volume: {order.volume_initial} • Price: {order.price_open:.5f}")
+                                            with col2:
+                                                if st.button("❌", key=f"cancel_{order.ticket}"):
+                                                    result = st.session_state.mt5_trader.cancel_order(order.ticket)
+                                                    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                                                        st.success("✅ Đã hủy lệnh!")
+                                                        time.sleep(2)
+                                                        st.rerun()
+                                    else:
+                                        st.info("Không có lệnh chờ nào")
+                            
+                            else:
+                                st.info("🔌 Kết nối MT5 để bắt đầu giao dịch")
+                                
+                                # Demo biểu đồ khi chưa kết nối
+                                st.subheader("📊 Biểu đồ demo (EURUSD)")
+                                # Tạo biểu đồ demo với dữ liệu giả
+                                dates = pd.date_range(start='2024-01-01', periods=100, freq='D')
+                                demo_data = pd.DataFrame({
+                                    'open': 1.0700 + np.random.randn(100).cumsum() * 0.001,
+                                    'high': 1.0700 + np.random.randn(100).cumsum() * 0.001 + 0.002,
+                                    'low': 1.0700 + np.random.randn(100).cumsum() * 0.001 - 0.002,
+                                    'close': 1.0700 + np.random.randn(100).cumsum() * 0.001
+                                }, index=dates)
+                                
+                                fig_demo = go.Figure(data=[go.Candlestick(
+                                    x=demo_data.index,
+                                    open=demo_data['open'],
+                                    high=demo_data['high'],
+                                    low=demo_data['low'],
+                                    close=demo_data['close']
+                                )])
+                                
+                                fig_demo.update_layout(
+                                    title="EURUSD - Biểu đồ demo (Kết nối MT5 để xem dữ liệu thực)",
+                                    template="plotly_dark",
+                                    height=400
+                                )
+                                
+                                st.plotly_chart(fig_demo, use_container_width=True)
+
+            else:
+                # Welcome Screen
+                st.markdown("""
+                <div class="dashboard-card">
+                    <h2 style="text-align: center; margin-bottom: 2rem;">🚀 Chào mừng đến với Live Trading Pro</h2>
+                    <p style="text-align: center; color: #8898aa; font-size: 1.1rem;">
+                        Kết nối tài khoản Alpaca của bạn để bắt đầu giao dịch
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Footer
+            st.markdown("""
+            <div style='text-align: center; padding: 3rem; color: #8898aa;'>
+                <p style='margin: 0; font-size: 0.9rem;'>Built with ❤️ using Streamlit • Professional Trading Platform</p>
+                <p style='margin: 0.5rem 0 0 0; font-size: 0.8rem; opacity: 0.7;'>Live Trading Pro v2.0 • MT5 Integration</p>
+            </div>
+            """, unsafe_allow_html=True)
