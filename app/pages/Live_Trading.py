@@ -912,8 +912,8 @@ if st.session_state.trader and st.session_state.trader.connected:
                         <div class="metric-label">Trạng thái</div>
                     </div>
                     """, unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Lỗi tải thông tin: {e}")
+        except Exception as e:
+            st.error(f"Lỗi tải thông tin: {e}")
 
     # Tab 2: Positions
     with tab2:
