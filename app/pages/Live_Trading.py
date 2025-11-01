@@ -298,7 +298,7 @@ class AlpacaTrader:
             is_fractional = qty != int(qty)
             
             # Sử dụng time_in_force phù hợp
-            time_in_force = TimeInForce.DAY if is_fractional else TimeInForce.GTC
+            time_in_force = TimeInForce.DAY
             
             market_order_data = MarketOrderRequest(
                 symbol=formatted_symbol, 
