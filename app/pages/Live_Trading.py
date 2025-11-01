@@ -184,9 +184,9 @@ st.markdown("""
 st.markdown('<div class="header-gradient">🚀 Live Trading Pro</div>', unsafe_allow_html=True)
 st.markdown('<div style="text-align: center; color: #8898aa; font-size: 1.2rem; margin-bottom: 3rem;">Professional Algorithmic Trading Platform</div>', unsafe_allow_html=True)
 
-# --- HÀM TẢI DỮ LIỆU ĐÃ ĐƯỢC SỬA ---
+# --- HÀM TẢI DỮ LIỆU ĐÃ ĐƯỢC SỬA HOÀN TOÀN ---
 def get_crypto_data_simple(symbol='BTC/USDT', timeframe='1h', limit=500):
-    """Simple data fetcher using multiple exchanges - THAY THẾ BINANCE API"""
+    """Simple data fetcher using multiple exchanges"""
     
     # Danh sách exchanges ít bị chặn
     exchanges = [
@@ -231,45 +231,69 @@ def get_yahoo_fallback(symbol):
         'LINK/USDT': 'LINK-USD',
         'LTC/USDT': 'LTC-USD',
         'BCH/USDT': 'BCH-USD',
-        'SOL/USDT': 'SOL-USD'
+        'SOL/USDT': 'SOL-USD',
+        'BTCUSD': 'BTC-USD',
+        'ETHUSD': 'ETH-USD',
+        'ADAUSD': 'ADA-USD',
+        'XRPUSD': 'XRP-USD'
     }
     
-    yahoo_symbol = symbol_map.get(symbol, 'BTC-USD')
+    yahoo_symbol = symbol_map.get(symbol, symbol)
     try:
-        data = yf.download(yahoo_symbol, period='6mo', interval='1h')
+        # Thử nhiều định dạng symbol khác nhau
+        data = yf.download(yahoo_symbol, period='2mo', interval='1d', progress=False, auto_adjust=True)
+        if data.empty:
+            # Thử không có hậu tố USD
+            clean_symbol = symbol.replace('USD', '').replace('USDT', '')
+            data = yf.download(f"{clean_symbol}-USD", period='2mo', interval='1d', progress=False, auto_adjust=True)
         return data
     except Exception as e:
-        return None
+        st.error(f"Yahoo Finance fallback failed: {e}")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def load_data_for_live(symbol, asset_type):
     try:
         if asset_type == "Crypto":
-            # Sử dụng hàm mới với multiple exchanges
-            df = get_crypto_data_simple(symbol, '1d', 60)
+            # Thử nhiều định dạng symbol
+            symbols_to_try = [symbol]
             
-            if df is not None and not df.empty:
-                return df
-            else:
-                # Fallback to yfinance
-                formatted_symbol = f"{symbol.replace('USD', '')}-USD"
-                data = yf.download(formatted_symbol, period="60d", interval='1d', progress=False, auto_adjust=True)
-                if data.empty:
-                    # Thử định dạng khác
-                    data = yf.download(symbol, period="60d", interval='1d', progress=False, auto_adjust=True)
-                return data
+            # Thêm các biến thể symbol
+            if 'USD' in symbol:
+                symbols_to_try.append(symbol.replace('USD', ''))
+                symbols_to_try.append(symbol.replace('USD', '') + '-USD')
+            if 'USDT' in symbol:
+                symbols_to_try.append(symbol.replace('USDT', ''))
+                symbols_to_try.append(symbol.replace('USDT', '') + '-USD')
+            
+            for sym in symbols_to_try:
+                try:
+                    data = yf.download(sym, period="60d", interval='1d', progress=False, auto_adjust=True)
+                    if not data.empty:
+                        # Đảm bảo columns tồn tại
+                        if 'Close' not in data.columns:
+                            if len(data.columns) > 0:
+                                data = data.rename(columns={data.columns[0]: 'Close'})
+                        return data
+                except:
+                    continue
+            
+            # Fallback cuối cùng
+            return pd.DataFrame()
         else:
             data = yf.download(symbol, period="2y", interval='1d', progress=False, auto_adjust=True)
         
+        # Chuẩn hóa columns
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
-        data.columns = [str(col).capitalize() for col in data.columns]
+        if len(data.columns) > 0:
+            data.columns = [str(col).capitalize() for col in data.columns]
         return data
     except Exception as e:
-        st.error(f"Lỗi tải dữ liệu cho {symbol}: {e}")
-        return None
+        st.error(f"Lỗi tải dữ liệu cho {symbol}: {str(e)}")
+        return pd.DataFrame()
 
-# --- Lớp AlpacaTrader ĐÃ SỬA LỖI ---
+# --- Lớp AlpacaTrader ĐÃ SỬA LỖI HOÀN TOÀN ---
 class AlpacaTrader:
     def __init__(self, api_key, api_secret, paper=True):
         self.api, self.account, self.connected = None, None, False
@@ -284,17 +308,28 @@ class AlpacaTrader:
         return self.api.get_account()
     
     def get_positions(self): 
-        return self.api.get_all_positions()
-    
-    def get_orders(self, status='open'):
-        """Lấy danh sách các lệnh chờ"""
         try:
-            orders = self.api.get_orders(status=status)
+            return self.api.get_all_positions()
+        except Exception as e:
+            st.error(f"Error getting positions: {e}")
+            return []
+    
+    def get_orders(self, status=None):
+        """Lấy danh sách các lệnh - ĐÃ SỬA LỖI PARAMETER"""
+        try:
+            # SỬA LỖI: Alpaca API không hỗ trợ trực tiếp parameter 'status'
+            orders = self.api.get_orders()
+            if status:
+                # Filter orders by status manually
+                if status == 'open':
+                    return [order for order in orders if order.status in ['new', 'partially_filled', 'pending_new']]
+                elif status == 'closed':
+                    return [order for order in orders if order.status in ['filled', 'canceled', 'rejected', 'expired']]
             return orders
         except Exception as e:
             st.error(f"Error getting orders: {e}")
             return []
-    
+
     def cancel_order(self, order_id):
         """Hủy lệnh chờ"""
         try:
@@ -665,139 +700,7 @@ class PerformanceAnalytics:
         
         return fig_equity, fig_gauges
 
-# --- SOCIAL SENTIMENT INTEGRATION ---
-class SocialSentimentAnalyzer:
-    def __init__(self):
-        self.cache = {}
-    
-    def analyze_twitter_sentiment(self, symbol):
-        try:
-            base_score = np.random.normal(0.6, 0.3)
-            score = max(-1, min(1, base_score))
-            
-            return {
-                'score': score,
-                'volume': np.random.randint(100, 10000),
-                'positive_ratio': max(0, min(1, (score + 1) / 2))
-            }
-        except Exception as e:
-            return {'score': 0, 'volume': 0, 'positive_ratio': 0.5}
-    
-    def analyze_reddit_sentiment(self, symbol):
-        try:
-            base_score = np.random.normal(0.4, 0.4)
-            score = max(-1, min(1, base_score))
-            
-            return {
-                'score': score,
-                'volume': np.random.randint(50, 5000),
-                'positive_ratio': max(0, min(1, (score + 1) / 2))
-            }
-        except Exception as e:
-            return {'score': 0, 'volume': 0, 'positive_ratio': 0.5}
-    
-    def calculate_sentiment_trend(self, symbol):
-        trends = ['📈 Improving', '📉 Declining', '➡️ Stable']
-        return np.random.choice(trends)
-    
-    def get_social_sentiment(self, symbol):
-        cache_key = f"{symbol}_{datetime.now().strftime('%Y%m%d%H')}"
-        
-        if cache_key in self.cache:
-            return self.cache[cache_key]
-        
-        twitter_sentiment = self.analyze_twitter_sentiment(symbol)
-        reddit_sentiment = self.analyze_reddit_sentiment(symbol)
-        
-        combined_sentiment = (
-            twitter_sentiment['score'] * 0.6 + 
-            reddit_sentiment['score'] * 0.4
-        )
-        
-        result = {
-            'combined_score': combined_sentiment,
-            'twitter_volume': twitter_sentiment['volume'],
-            'reddit_volume': reddit_sentiment['volume'],
-            'sentiment_trend': self.calculate_sentiment_trend(symbol),
-            'sentiment_label': 'Bullish' if combined_sentiment > 0.1 else 'Bearish' if combined_sentiment < -0.1 else 'Neutral',
-            'confidence': min(100, abs(combined_sentiment) * 100)
-        }
-        
-        self.cache[cache_key] = result
-        return result
-
 # --- Các hàm hỗ trợ ---
-@st.cache_resource
-def train_model_on_the_fly(data):
-    if data is None or len(data) < 100:
-        return None
-    
-    try:
-        # SỬA LỖI: Sử dụng pandas_ta đúng cách
-        data = data.copy()
-        data['SMA_20'] = ta.sma(data['Close'], length=20)
-        data['SMA_50'] = ta.sma(data['Close'], length=50)
-        data['RSI'] = ta.rsi(data['Close'], length=14)
-        data['Volume_SMA'] = ta.sma(data['Volume'], length=20)
-        
-        data['Future_Return'] = data['Close'].shift(-5) / data['Close'] - 1
-        data['Target'] = (data['Future_Return'] > 0).astype(int)
-        
-        features = ['SMA_20', 'SMA_50', 'RSI', 'Volume_SMA']
-        data_clean = data.dropna()
-        
-        if len(data_clean) < 50:
-            return None
-            
-        X = data_clean[features]
-        y = data_clean['Target']
-        
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        model.fit(X, y)
-        
-        return model
-    except Exception as e:
-        st.error(f"Lỗi training model: {e}")
-        return None
-
-def get_ml_signal(data, model):
-    if data is None or model is None:
-        return "NO_SIGNAL", 0
-    
-    try:
-        # SỬA LỖI: Sử dụng pandas_ta đúng cách
-        latest_data = data.copy()
-        latest_data['SMA_20'] = ta.sma(latest_data['Close'], length=20)
-        latest_data['SMA_50'] = ta.sma(latest_data['Close'], length=50)
-        latest_data['RSI'] = ta.rsi(latest_data['Close'], length=14)
-        latest_data['Volume_SMA'] = ta.sma(latest_data['Volume'], length=20)
-        
-        latest = latest_data.iloc[-1].copy()
-        
-        features = ['SMA_20', 'SMA_50', 'RSI', 'Volume_SMA']
-        
-        # Kiểm tra xem tất cả features có tồn tại không
-        if not all(feature in latest.index for feature in features):
-            return "NO_SIGNAL", 0
-            
-        X_latest = pd.DataFrame([latest[features]])
-        
-        prediction = model.predict(X_latest)[0]
-        probability = model.predict_proba(X_latest)[0]
-        
-        confidence = max(probability)
-        
-        if prediction == 1 and confidence > 0.6:
-            return "BUY", confidence
-        elif prediction == 0 and confidence > 0.6:
-            return "SELL", confidence
-        else:
-            return "HOLD", confidence
-            
-    except Exception as e:
-        st.error(f"Lỗi get ML signal: {e}")
-        return "NO_SIGNAL", 0
-
 def get_asset_badge(asset_type):
     """Trả về badge CSS class cho từng loại tài sản"""
     if asset_type == "Crypto":
@@ -865,14 +768,10 @@ if 'trader' not in st.session_state:
     st.session_state.trader = None
 if 'performance_analytics' not in st.session_state:
     st.session_state.performance_analytics = None
-if 'sentiment_analyzer' not in st.session_state:
-    st.session_state.sentiment_analyzer = SocialSentimentAnalyzer()
 if 'selected_position' not in st.session_state:
     st.session_state.selected_position = None
 if 'suggested_qty' not in st.session_state:
     st.session_state.suggested_qty = 1.0
-if 'bot_running' not in st.session_state:
-    st.session_state.bot_running = False
 if 'pending_orders' not in st.session_state:
     st.session_state.pending_orders = []
 
@@ -928,7 +827,6 @@ with st.sidebar:
 if st.session_state.trader and st.session_state.trader.connected:
     trader = st.session_state.trader
     performance_analytics = st.session_state.performance_analytics
-    sentiment_analyzer = st.session_state.sentiment_analyzer
 
     # Status Cards
     try:
@@ -979,9 +877,9 @@ if st.session_state.trader and st.session_state.trader.connected:
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
     # Tabs với UI/UX đồng bộ - ĐÃ SỬA LỖI HIỂN THỊ
-    tab_titles = ["📊 Overview", "📈 Positions", "🛠️ Manual Trading", "🤖 Automated Trading", 
-                  "📉 Risk Dashboard", "📊 Performance Analytics", "🎭 Social Sentiment", "⏳ Pending Orders"]
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(tab_titles)
+    tab_titles = ["📊 Overview", "📈 Positions", "🛠️ Manual Trading", 
+                  "📉 Risk Dashboard", "📊 Performance Analytics", "⏳ Pending Orders"]
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tab_titles)
 
     # Tab 1: Overview
     with tab1:
@@ -1160,7 +1058,7 @@ if st.session_state.trader and st.session_state.trader.connected:
         except Exception as e:
             st.error(f"Cannot load positions list: {e}")
 
-    # Tab 3: Manual Trading - ĐÃ SỬA LỖI
+    # Tab 3: Manual Trading - ĐÃ SỬA LỖI HOÀN TOÀN
     with tab3:
         st.markdown("""
         <div class="dashboard-card">
@@ -1277,15 +1175,15 @@ if st.session_state.trader and st.session_state.trader.connected:
                                     format=format_str, 
                                     key="manual_qty")
         
-        # Hiển thị thông tin thời gian thực
+        # Hiển thị thông tin thời gian thực - ĐÃ SỬA LỖI HOÀN TOÀN
         current_price = None
         if symbol:
             try:
                 with st.spinner("Loading real-time data..."):
                     data = load_data_for_live(symbol, asset_type)
-                    if data is not None and not data.empty:
-                        # SỬA LỖI: Xử lý dữ liệu trả về từ yfinance
-                        if 'Close' in data.columns:
+                    if data is not None and not data.empty and len(data) > 0:
+                        # Xử lý dữ liệu an toàn
+                        if 'Close' in data.columns and len(data['Close']) > 0:
                             current_price = data['Close'].iloc[-1]
                             if len(data) > 1:
                                 price_change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100)
@@ -1318,10 +1216,12 @@ if st.session_state.trader and st.session_state.trader.connected:
                                 </div>
                                 """, unsafe_allow_html=True)
                         else:
-                            st.error("Không thể lấy dữ liệu giá từ nguồn dữ liệu")
+                            st.warning("⚠️ Could not load price data for this symbol")
+                    else:
+                        st.warning("⚠️ No data available for this symbol")
                             
             except Exception as e:
-                st.error(f"Could not load data for {symbol}: {e}")
+                st.warning(f"⚠️ Could not load data for {symbol}: {str(e)}")
         
         # Trading buttons với UI đồng bộ
         st.markdown("""
@@ -1405,8 +1305,87 @@ if st.session_state.trader and st.session_state.trader.connected:
                 st.session_state.suggested_qty = default_qty
                 st.rerun()
 
-    # Tab 8: Pending Orders - TAB MỚI ĐÃ THÊM
-    with tab8:
+    # Tab 4: Risk Dashboard
+    with tab4:
+        st.markdown("""
+        <div class="dashboard-card">
+            <h3>📉 Risk Management Dashboard</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        try:
+            risk_fig, risk_metrics = create_risk_dashboard(trader)
+            st.plotly_chart(risk_fig, use_container_width=True)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                var_color = "inverse" if risk_metrics['var_1d'] > 1000 else "off" if risk_metrics['var_1d'] > 500 else "normal"
+                st.metric(
+                    "1-Day Value at Risk", 
+                    f"${risk_metrics['var_1d']:,.2f}",
+                    delta=f"{(risk_metrics['var_1d']/float(trader.get_account_info().portfolio_value)*100):.1f}% of portfolio",
+                    delta_color=var_color
+                )
+            
+            with col2:
+                dd_color = "inverse" if risk_metrics['max_drawdown'] > 20 else "off" if risk_metrics['max_drawdown'] > 10 else "normal"
+                st.metric(
+                    "Max Drawdown", 
+                    f"{risk_metrics['max_drawdown']:.1f}%",
+                    delta_color=dd_color
+                )
+            
+            with col3:
+                sharpe_color = "normal" if risk_metrics['sharpe_ratio'] > 1.5 else "off" if risk_metrics['sharpe_ratio'] > 0.5 else "inverse"
+                st.metric(
+                    "Sharpe Ratio", 
+                    f"{risk_metrics['sharpe_ratio']:.2f}",
+                    delta="Good" if risk_metrics['sharpe_ratio'] > 1 else "Poor" if risk_metrics['sharpe_ratio'] < 0 else "Average",
+                    delta_color=sharpe_color
+                )
+                
+        except Exception as e:
+            st.error(f"Error loading risk dashboard: {e}")
+
+    # Tab 5: Performance Analytics
+    with tab5:
+        st.markdown("""
+        <div class="dashboard-card">
+            <h3>📊 Performance Analytics & Reporting</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Generate Daily Report", key="generate_report"):
+            try:
+                report = performance_analytics.generate_daily_report()
+                fig_equity, fig_gauges = performance_analytics.create_performance_charts(report)
+                
+                st.subheader("Daily Performance Summary")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Daily P&L", f"${report['daily_pnl']:,.2f}")
+                col2.metric("Win Rate", f"{report['win_rate']:.1f}%")
+                col3.metric("Profit Factor", f"{report['profit_factor']:.2f}")
+                col4.metric("Total Trades", report['total_trades'])
+                
+                col5, col6, col7, col8 = st.columns(4)
+                col5.metric("Avg Trade Duration", report['avg_trade_duration'])
+                col6.metric("Sharpe Ratio", f"{report['sharpe_ratio']:.2f}")
+                col7.metric("Max Drawdown", f"{report['max_drawdown']:.1f}%")
+                col8.metric("Best Strategy", report['best_performing_strategy'])
+                
+                st.plotly_chart(fig_gauges, use_container_width=True)
+                if fig_equity.data:
+                    st.plotly_chart(fig_equity, use_container_width=True)
+                else:
+                    st.info("No equity curve data available yet. Start trading to see performance metrics.")
+                    
+            except Exception as e:
+                st.error(f"Error generating performance report: {e}")
+
+    # Tab 6: Pending Orders - TAB MỚI ĐÃ THÊM VÀ SỬA LỖI
+    with tab6:
         st.markdown("""
         <div class="dashboard-card">
             <h3>⏳ Pending Orders Management</h3>
@@ -1419,8 +1398,9 @@ if st.session_state.trader and st.session_state.trader.connected:
             st.rerun()
             
         try:
-            # Lấy danh sách lệnh chờ
-            pending_orders = trader.get_orders(status='open')
+            # Lấy danh sách lệnh chờ - ĐÃ SỬA LỖI PARAMETER
+            all_orders = trader.get_orders()
+            pending_orders = [order for order in all_orders if order.status in ['new', 'partially_filled', 'pending_new']]
             
             if pending_orders:
                 st.subheader(f"📋 Pending Orders ({len(pending_orders)})")
@@ -1456,9 +1436,6 @@ if st.session_state.trader and st.session_state.trader.connected:
                 
         except Exception as e:
             st.error(f"Error loading pending orders: {e}")
-
-    # Các tab còn lại (Automated Trading, Risk Dashboard, Performance Analytics, Social Sentiment)
-    # ... (giữ nguyên code cho các tab này)
 
 else:
     # Welcome Screen
