@@ -17,3 +17,4 @@ anywidget
 requests
 web3
 textblob
+MetaTrader5
